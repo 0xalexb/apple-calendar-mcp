@@ -42,13 +42,6 @@ jobs:
             exit 0
           fi
 
-          CACHE_FLAG="$HOME/.cache/uv/apple-calendar-mcp-${VERSION}"
-          if [ ! -f "$CACHE_FLAG" ]; then
-            rm -f "$HOME/.cache/uv/apple-calendar-mcp-"* 2>/dev/null || true
-            uv cache clean apple-calendar-mcp 2>/dev/null || true
-            mkdir -p "$(dirname "$CACHE_FLAG")"
-            touch "$CACHE_FLAG"
-          fi
           exec uvx --from "git+https://github.com/0xalexb/apple-calendar-mcp@v${VERSION}" apple-calendar-mcp "$@"
           SCRIPT
           sed -i "s/__VERSION__/${RELEASE_VERSION}/" apple-calendar-mcp
