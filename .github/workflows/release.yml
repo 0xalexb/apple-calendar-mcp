@@ -36,6 +36,12 @@ jobs:
           #!/usr/bin/env bash
           set -euo pipefail
           VERSION="__VERSION__"
+
+          if [[ "${1:-}" == "--version" || "${1:-}" == "-V" ]]; then
+            echo "apple-calendar-mcp ${VERSION}"
+            exit 0
+          fi
+
           CACHE_FLAG="$HOME/.cache/uv/apple-calendar-mcp-${VERSION}"
           if [ ! -f "$CACHE_FLAG" ]; then
             rm -f "$HOME/.cache/uv/apple-calendar-mcp-"* 2>/dev/null || true
