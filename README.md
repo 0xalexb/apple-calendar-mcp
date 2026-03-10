@@ -28,7 +28,7 @@ brew install 0xalexb/apps/apple-calendar-mcp
 ### uvx (no local install)
 
 ```bash
-uvx apple-calendar-mcp
+uvx --from "git+https://github.com/0xalexb/apple-calendar-mcp" apple-calendar-mcp
 ```
 
 ### From source
