@@ -49,7 +49,7 @@ jobs:
             mkdir -p "$(dirname "$CACHE_FLAG")"
             touch "$CACHE_FLAG"
           fi
-          exec uvx --from "apple-calendar-mcp==${VERSION}" apple-calendar-mcp "$@"
+          exec uvx --from "git+https://github.com/0xalexb/apple-calendar-mcp@v${VERSION}" apple-calendar-mcp "$@"
           SCRIPT
           sed -i "s/__VERSION__/${RELEASE_VERSION}/" apple-calendar-mcp
           chmod +x apple-calendar-mcp
