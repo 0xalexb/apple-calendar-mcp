@@ -178,6 +178,7 @@ class TestFormatEvent:
         assert result["url"] == "https://example.com"
         assert result["notes"] == "Bring slides"
         assert result["calendar"] == "Work"
+        assert result["calendar_id"] == "cal-work"
         assert result["has_recurrence"] is True
 
     def test_minimal_event(self):
@@ -194,6 +195,7 @@ class TestFormatEvent:
         assert result["url"] is None
         assert result["notes"] is None
         assert result["calendar"] is None
+        assert result["calendar_id"] is None
         assert result["has_recurrence"] is False
 
     def test_event_without_url(self):
@@ -243,8 +245,8 @@ class TestListCalendars:
         result = list_calendars()
 
         assert len(result) == 2
-        assert result[0] == {"name": "Work", "upcoming_event_count": 2}
-        assert result[1] == {"name": "Personal", "upcoming_event_count": 1}
+        assert result[0] == {"id": "cal-w", "name": "Work", "upcoming_event_count": 2}
+        assert result[1] == {"id": "cal-p", "name": "Personal", "upcoming_event_count": 1}
 
     def test_empty_calendars(self, mock_service):
         mock_service.get_all_calendars.return_value = []
@@ -261,7 +263,7 @@ class TestListCalendars:
         result = list_calendars()
 
         assert len(result) == 1
-        assert result[0] == {"name": "Empty", "upcoming_event_count": 0}
+        assert result[0] == {"id": "cal-e", "name": "Empty", "upcoming_event_count": 0}
 
 
 # ---------------------------------------------------------------------------
@@ -283,7 +285,7 @@ class TestGetEvents:
         )
         mock_service.get_events.return_value = [evt]
 
-        result = get_events("Work", "2026-03-15")
+        result = get_events(start_date="2026-03-15", calendar_name="Work")
 
         assert len(result) == 1
         assert result[0]["title"] == "Meeting"
@@ -291,23 +293,65 @@ class TestGetEvents:
             "Work",
             datetime(2026, 3, 15),
             datetime(2026, 3, 16),
+            calendar_id=None,
         )
 
     def test_with_explicit_end_date(self, mock_service):
         mock_service.get_events.return_value = []
 
-        get_events("Work", "2026-03-15", "2026-03-20")
+        get_events(
+            start_date="2026-03-15",
+            end_date="2026-03-20",
+            calendar_name="Work",
+        )
 
         mock_service.get_events.assert_called_once_with(
             "Work",
             datetime(2026, 3, 15),
             datetime(2026, 3, 20),
+            calendar_id=None,
+        )
+
+    def test_with_calendar_id(self, mock_service):
+        mock_service.get_events.return_value = []
+
+        get_events(start_date="2026-03-15", calendar_name="Work", calendar_id="cal-w1")
+
+        mock_service.get_events.assert_called_once_with(
+            "Work",
+            datetime(2026, 3, 15),
+            datetime(2026, 3, 16),
+            calendar_id="cal-w1",
+        )
+
+    def test_with_calendar_id_only(self, mock_service):
+        mock_service.get_events.return_value = []
+
+        get_events(start_date="2026-03-15", calendar_id="cal-w1")
+
+        mock_service.get_events.assert_called_once_with(
+            None,
+            datetime(2026, 3, 15),
+            datetime(2026, 3, 16),
+            calendar_id="cal-w1",
+        )
+
+    def test_with_calendar_id_overrides_name(self, mock_service):
+        mock_service.get_events.return_value = []
+
+        get_events(start_date="2026-03-15", calendar_name="Work", calendar_id="cal-w1")
+
+        mock_service.get_events.assert_called_once_with(
+            "Work",
+            datetime(2026, 3, 15),
+            datetime(2026, 3, 16),
+            calendar_id="cal-w1",
         )
 
     def test_empty_result(self, mock_service):
         mock_service.get_events.return_value = []
 
-        result = get_events("Work", "2026-03-15")
+        result = get_events(start_date="2026-03-15", calendar_name="Work")
         assert result == []
 
     def test_service_error_propagates(self, mock_service):
@@ -316,7 +360,7 @@ class TestGetEvents:
         )
 
         with pytest.raises(ValueError, match="not found"):
-            get_events("Missing", "2026-03-15")
+            get_events(start_date="2026-03-15", calendar_name="Missing")
 
 
 # ---------------------------------------------------------------------------
@@ -326,8 +370,8 @@ class TestGetEvents:
 
 class TestGetAllEvents:
     def test_returns_grouped_events(self, mock_service):
-        cal1 = MockCalendar("Work")
-        cal2 = MockCalendar("Personal")
+        cal1 = MockCalendar("Work", "cal-w")
+        cal2 = MockCalendar("Personal", "cal-p")
         start = MockNSDate(1742036400.0)
         end = MockNSDate(1742040000.0)
         evt1 = MockEvent(
@@ -385,3 +429,26 @@ class TestGetAllEvents:
 
         assert "Unknown" in result
         assert result["Unknown"][0]["title"] == "Orphan"
+
+    def test_duplicate_name_calendars_grouped_by_name(self, mock_service):
+        cal1 = MockCalendar("Work", "cal-w1")
+        cal2 = MockCalendar("Work", "cal-w2")
+        start = MockNSDate(1742036400.0)
+        end = MockNSDate(1742040000.0)
+        evt1 = MockEvent(
+            title="Meeting A", calendar=cal1, start_date=start, end_date=end
+        )
+        evt2 = MockEvent(
+            title="Meeting B", calendar=cal2, start_date=start, end_date=end
+        )
+        mock_service.get_all_events.return_value = [evt1, evt2]
+
+        result = get_all_events("2026-03-15")
+
+        assert "Work" in result
+        assert len(result["Work"]) == 2
+        titles = {e["title"] for e in result["Work"]}
+        assert titles == {"Meeting A", "Meeting B"}
+        # Individual events retain calendar_id for disambiguation
+        ids = {e["calendar_id"] for e in result["Work"]}
+        assert ids == {"cal-w1", "cal-w2"}

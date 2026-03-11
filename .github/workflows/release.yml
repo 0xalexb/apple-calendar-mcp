@@ -62,7 +62,19 @@ jobs:
         run: |
           VERSION="${GITHUB_REF#refs/tags/v}"
           REPO="${{ github.repository }}"
-          curl -fSL "https://github.com/${REPO}/releases/download/v${VERSION}/apple-calendar-mcp" -o apple-calendar-mcp
+          DOWNLOAD_OK=false
+          for i in 1 2 3 4 5; do
+            if curl -fSL "https://github.com/${REPO}/releases/download/v${VERSION}/apple-calendar-mcp" -o apple-calendar-mcp; then
+              DOWNLOAD_OK=true
+              break
+            fi
+            echo "Attempt $i failed, retrying in 15s..."
+            sleep 15
+          done
+          if [ "$DOWNLOAD_OK" != "true" ]; then
+            echo "::error::Failed to download apple-calendar-mcp after 5 attempts"
+            exit 1
+          fi
           SHA=$(sha256sum apple-calendar-mcp | awk '{print $1}')
           echo "SHA256=${SHA}" >> "$GITHUB_OUTPUT"
           echo "VERSION=${VERSION}" >> "$GITHUB_OUTPUT"

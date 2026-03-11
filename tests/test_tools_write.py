@@ -254,10 +254,35 @@ class TestCreateEvent:
         assert result["has_recurrence"] is True
         call_kwargs = mock_service.create_event.call_args.kwargs
         assert call_kwargs["calendar_name"] == "Work"
+        assert call_kwargs["calendar_id"] is None
         assert call_kwargs["location"] == "Office"
         assert call_kwargs["url"] == "https://meet.example.com"
         assert call_kwargs["notes"] == "Bring slides"
         assert call_kwargs["recurrence"] == "weekly"
+
+    def test_with_calendar_id(self, mock_service):
+        cal = MockCalendar("Work", "cal-w2")
+        start = MockNSDate(1742036400.0)
+        end = MockNSDate(1742040000.0)
+        evt = MockEvent(
+            title="Meeting",
+            identifier="evt-10",
+            calendar=cal,
+            start_date=start,
+            end_date=end,
+        )
+        mock_service.create_event.return_value = evt
+
+        result = create_event(
+            title="Meeting",
+            start_date="2026-03-15T10:00:00",
+            calendar_id="cal-w2",
+        )
+
+        assert result["title"] == "Meeting"
+        call_kwargs = mock_service.create_event.call_args.kwargs
+        assert call_kwargs["calendar_id"] == "cal-w2"
+        assert call_kwargs["calendar_name"] is None
 
     def test_service_error_propagates(self, mock_service):
         mock_service.create_event.side_effect = ValueError(
@@ -388,12 +413,77 @@ class TestMoveEvent:
         )
         mock_service.move_event.return_value = evt
 
-        result = move_event("evt-7", "Personal")
+        result = move_event("evt-7", target_calendar_name="Personal")
 
         assert result["id"] == "evt-7"
         assert result["title"] == "Moved event"
         assert result["calendar"] == "Personal"
-        mock_service.move_event.assert_called_once_with("evt-7", "Personal")
+        mock_service.move_event.assert_called_once_with(
+            "evt-7", "Personal", target_calendar_id=None
+        )
+
+    def test_moves_event_by_calendar_id_only(self, mock_service):
+        cal = MockCalendar("Personal", "cal-p")
+        start = MockNSDate(1742036400.0)
+        end = MockNSDate(1742040000.0)
+        evt = MockEvent(
+            title="Moved event",
+            identifier="evt-7",
+            calendar=cal,
+            start_date=start,
+            end_date=end,
+        )
+        mock_service.move_event.return_value = evt
+
+        result = move_event("evt-7", target_calendar_id="cal-p")
+
+        assert result["id"] == "evt-7"
+        assert result["calendar"] == "Personal"
+        mock_service.move_event.assert_called_once_with(
+            "evt-7", None, target_calendar_id="cal-p"
+        )
+
+    def test_moves_event_by_calendar_id(self, mock_service):
+        cal = MockCalendar("Personal", "cal-p")
+        start = MockNSDate(1742036400.0)
+        end = MockNSDate(1742040000.0)
+        evt = MockEvent(
+            title="Moved event",
+            identifier="evt-7",
+            calendar=cal,
+            start_date=start,
+            end_date=end,
+        )
+        mock_service.move_event.return_value = evt
+
+        result = move_event("evt-7", target_calendar_name="Personal", target_calendar_id="cal-p")
+
+        assert result["id"] == "evt-7"
+        assert result["calendar"] == "Personal"
+        mock_service.move_event.assert_called_once_with(
+            "evt-7", "Personal", target_calendar_id="cal-p"
+        )
+
+    def test_moves_event_by_calendar_id_with_name(self, mock_service):
+        cal = MockCalendar("Personal", "cal-p")
+        start = MockNSDate(1742036400.0)
+        end = MockNSDate(1742040000.0)
+        evt = MockEvent(
+            title="Moved event",
+            identifier="evt-7",
+            calendar=cal,
+            start_date=start,
+            end_date=end,
+        )
+        mock_service.move_event.return_value = evt
+
+        result = move_event("evt-7", target_calendar_name="Personal", target_calendar_id="cal-p")
+
+        assert result["id"] == "evt-7"
+        assert result["calendar"] == "Personal"
+        mock_service.move_event.assert_called_once_with(
+            "evt-7", "Personal", target_calendar_id="cal-p"
+        )
 
     def test_event_not_found_propagates(self, mock_service):
         mock_service.move_event.side_effect = ValueError(
@@ -401,7 +491,7 @@ class TestMoveEvent:
         )
 
         with pytest.raises(ValueError, match="not found"):
-            move_event("bad-id", "Personal")
+            move_event("bad-id", target_calendar_name="Personal")
 
     def test_target_calendar_not_found_propagates(self, mock_service):
         mock_service.move_event.side_effect = ValueError(
@@ -409,7 +499,7 @@ class TestMoveEvent:
         )
 
         with pytest.raises(ValueError, match="not found"):
-            move_event("evt-7", "Missing")
+            move_event("evt-7", target_calendar_name="Missing")
 
 
 # ---------------------------------------------------------------------------

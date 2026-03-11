@@ -40,6 +40,7 @@ def _format_event(event) -> dict:
         "url": str(event.URL()) if event.URL() else None,
         "notes": event.notes(),
         "calendar": event.calendar().title() if event.calendar() else None,
+        "calendar_id": event.calendar().calendarIdentifier() if event.calendar() else None,
         "has_recurrence": bool(event.hasRecurrenceRules()),
     }
 
@@ -66,6 +67,7 @@ def list_calendars() -> list[dict]:
             counts[cal_id] = counts.get(cal_id, 0) + 1
     return [
         {
+            "id": cal.calendarIdentifier(),
             "name": cal.title(),
             "upcoming_event_count": counts.get(cal.calendarIdentifier(), 0),
         }
@@ -75,15 +77,18 @@ def list_calendars() -> list[dict]:
 
 @mcp.tool()
 def get_events(
-    calendar_name: str,
     start_date: str,
+    calendar_name: str | None = None,
     end_date: str | None = None,
+    calendar_id: str | None = None,
 ) -> list[dict]:
-    """Returns events for a specific calendar in a date range. Dates in ISO 8601 format. If end_date is omitted, defaults to start + 1 day."""
+    """Returns events for a specific calendar in a date range. Dates in ISO 8601 format. If end_date is omitted, defaults to start + 1 day. Provide calendar_name, calendar_id (preferred, stable across renames), or both."""
     service = _get_service()
     start = datetime.fromisoformat(start_date)
     end = datetime.fromisoformat(end_date) if end_date else start + timedelta(days=1)
-    events = service.get_events(calendar_name, start, end)
+    events = service.get_events(
+        calendar_name, start, end, calendar_id=calendar_id
+    )
     return [_format_event(ev) for ev in events]
 
 
@@ -99,10 +104,11 @@ def get_all_events(
     events = service.get_all_events(start, end)
     grouped: dict[str, list[dict]] = {}
     for ev in events:
-        cal_name = ev.calendar().title() if ev.calendar() else "Unknown"
-        if cal_name not in grouped:
-            grouped[cal_name] = []
-        grouped[cal_name].append(_format_event(ev))
+        cal = ev.calendar()
+        key = cal.title() if cal else "Unknown"
+        if key not in grouped:
+            grouped[key] = []
+        grouped[key].append(_format_event(ev))
     return grouped
 
 
@@ -120,13 +126,14 @@ def create_event(
     start_date: str,
     end_date: str | None = None,
     calendar_name: str | None = None,
+    calendar_id: str | None = None,
     is_all_day: bool = False,
     location: str | None = None,
     url: str | None = None,
     notes: str | None = None,
     recurrence: str | None = None,
 ) -> dict:
-    """Creates a calendar event. start_date in ISO 8601 format. If end_date is omitted, defaults to start + 1 hour (or +1 day if all-day). Optional: calendar_name, is_all_day, location, url, notes, recurrence (daily/weekly/monthly/yearly)."""
+    """Creates a calendar event. start_date in ISO 8601 format. If end_date is omitted, defaults to start + 1 hour (or +1 day if all-day). Optional: calendar_name or calendar_id (preferred, avoids ambiguity), is_all_day, location, url, notes, recurrence (daily/weekly/monthly/yearly)."""
     service = _get_service()
     start = datetime.fromisoformat(start_date)
     if end_date:
@@ -140,6 +147,7 @@ def create_event(
         start_date=start,
         end_date=end,
         calendar_name=calendar_name,
+        calendar_id=calendar_id,
         is_all_day=is_all_day,
         location=location,
         url=url,
@@ -186,10 +194,18 @@ def delete_event(event_id: str, span: str = "this") -> dict:
 
 
 @mcp.tool()
-def move_event(event_id: str, target_calendar_name: str) -> dict:
-    """Moves an event to a different calendar."""
+def move_event(
+    event_id: str,
+    target_calendar_name: str | None = None,
+    target_calendar_id: str | None = None,
+) -> dict:
+    """Moves an event to a different calendar. Provide target_calendar_name, target_calendar_id (preferred, stable across renames), or both."""
     service = _get_service()
-    event = service.move_event(event_id, target_calendar_name)
+    event = service.move_event(
+        event_id,
+        target_calendar_name,
+        target_calendar_id=target_calendar_id,
+    )
     return _format_event(event)
 
 

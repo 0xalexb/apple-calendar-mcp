@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import datetime, timezone, timedelta
+from datetime import datetime, timezone
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -198,6 +198,81 @@ class TestGetCalendarByName:
 
 
 # ---------------------------------------------------------------------------
+# Tests: get_calendar_by_id
+# ---------------------------------------------------------------------------
+
+
+class TestGetCalendarById:
+    def test_found(self):
+        work = MockCalendar("Work", "cal-work")
+        personal = MockCalendar("Personal", "cal-personal")
+        svc, _, _ = _make_service(calendars=[work, personal])
+
+        assert svc.get_calendar_by_id("cal-personal") is personal
+
+    def test_not_found(self):
+        svc, _, _ = _make_service(calendars=[MockCalendar("Work", "cal-work")])
+
+        assert svc.get_calendar_by_id("cal-missing") is None
+
+
+# ---------------------------------------------------------------------------
+# Tests: _resolve_calendar
+# ---------------------------------------------------------------------------
+
+
+class TestResolveCalendar:
+    def test_resolve_by_id_preferred_over_name(self):
+        work1 = MockCalendar("Work", "cal-w1")
+        work2 = MockCalendar("Work", "cal-w2")
+        svc, _, _ = _make_service(calendars=[work1, work2])
+
+        result = svc._resolve_calendar(name="Work", calendar_id="cal-w2")
+        assert result is work2
+
+    def test_resolve_by_name_fallback(self):
+        work = MockCalendar("Work", "cal-w1")
+        svc, _, _ = _make_service(calendars=[work])
+
+        result = svc._resolve_calendar(name="Work")
+        assert result is work
+
+    def test_resolve_by_id_only(self):
+        work = MockCalendar("Work", "cal-w1")
+        svc, _, _ = _make_service(calendars=[work])
+
+        result = svc._resolve_calendar(calendar_id="cal-w1")
+        assert result is work
+
+    def test_id_not_found_raises(self):
+        svc, _, _ = _make_service(calendars=[MockCalendar("Work", "cal-w1")])
+
+        with pytest.raises(ValueError, match="Calendar with id 'cal-missing' not found"):
+            svc._resolve_calendar(calendar_id="cal-missing")
+
+    def test_name_not_found_raises(self):
+        svc, _, _ = _make_service(calendars=[])
+
+        with pytest.raises(ValueError, match="Calendar 'Missing' not found"):
+            svc._resolve_calendar(name="Missing")
+
+    def test_name_id_mismatch_raises(self):
+        work = MockCalendar("Work", "cal-w1")
+        svc, _, _ = _make_service(calendars=[work])
+
+        with pytest.raises(
+            ValueError, match="Calendar id 'cal-w1' resolves to 'Work', not 'Personal'"
+        ):
+            svc._resolve_calendar(name="Personal", calendar_id="cal-w1")
+
+    def test_neither_provided_raises(self):
+        svc, _, _ = _make_service()
+
+        with pytest.raises(ValueError, match="Either calendar name or calendar_id"):
+            svc._resolve_calendar()
+
+
+# ---------------------------------------------------------------------------
 # Tests: create_calendar
 # ---------------------------------------------------------------------------
 
@@ -257,6 +332,7 @@ class TestGetEvents:
             )
 
         assert result == [evt]
+        store.predicateForEventsWithStartDate_endDate_calendars_.assert_called_once()
         store.eventsMatchingPredicate_.assert_called_once()
 
     def test_calendar_not_found_raises(self):
@@ -279,6 +355,36 @@ class TestGetEvents:
 
         assert result == []
 
+    def test_by_calendar_id(self):
+        cal1 = MockCalendar("Work", "cal-w1")
+        cal2 = MockCalendar("Work", "cal-w2")
+        evt = MockEvent("Meeting")
+        svc, store, _ = _make_service(calendars=[cal1, cal2], events=[evt])
+
+        mock_foundation = MagicMock()
+        with patch.dict("sys.modules", {"Foundation": mock_foundation}):
+            result = svc.get_events(
+                None,
+                datetime(2026, 3, 15),
+                datetime(2026, 3, 16),
+                calendar_id="cal-w2",
+            )
+
+        assert result == [evt]
+        args = store.predicateForEventsWithStartDate_endDate_calendars_.call_args
+        assert args[0][2] == [cal2]
+
+    def test_calendar_id_not_found_raises(self):
+        svc, _, _ = _make_service(calendars=[])
+
+        with pytest.raises(ValueError, match="Calendar with id 'cal-bad' not found"):
+            svc.get_events(
+                None,
+                datetime(2026, 3, 15),
+                datetime(2026, 3, 16),
+                calendar_id="cal-bad",
+            )
+
 
 # ---------------------------------------------------------------------------
 # Tests: get_all_events
@@ -298,6 +404,7 @@ class TestGetAllEvents:
             )
 
         assert result == evts
+        store.predicateForEventsWithStartDate_endDate_calendars_.assert_called_once()
         store.eventsMatchingPredicate_.assert_called_once()
 
     def test_returns_empty_when_no_calendars(self):
@@ -411,6 +518,26 @@ class TestCreateEvent:
             )
 
         assert mock_rule in mock_evt._recurrence_rules
+
+    def test_with_calendar_id(self):
+        ek = _make_ek_module()
+        mock_evt = MockEvent()
+        ek.EKEvent.eventWithEventStore_.return_value = mock_evt
+        target_cal = MockCalendar("Work", "cal-w2")
+        other_cal = MockCalendar("Work", "cal-w1")
+        store = _make_store(calendars=[other_cal, target_cal])
+        svc = EventKitService(event_store=store, ek_module=ek)
+
+        mock_foundation = MagicMock()
+        with patch.dict("sys.modules", {"Foundation": mock_foundation}):
+            result = svc.create_event(
+                "Meeting",
+                start_date=datetime(2026, 3, 15, 10, 0),
+                end_date=datetime(2026, 3, 15, 11, 0),
+                calendar_id="cal-w2",
+            )
+
+        assert result.calendar() is target_cal
 
     def test_calendar_not_found_raises(self):
         ek = _make_ek_module()
@@ -584,6 +711,39 @@ class TestUpdateEvent:
 
         assert mock_foundation.NSDate.dateWithTimeIntervalSince1970_.call_count == 2
 
+    def test_clear_location_with_empty_string(self):
+        mock_evt = MockEvent("Meeting", "evt-42")
+        mock_evt._location = "Office"
+        store = _make_store()
+        store.calendarItemWithIdentifier_.return_value = mock_evt
+        svc, _, _ = _make_service(store=store)
+
+        svc.update_event("evt-42", location="")
+
+        assert mock_evt.location() is None
+
+    def test_clear_notes_with_empty_string(self):
+        mock_evt = MockEvent("Meeting", "evt-42")
+        mock_evt._notes = "Some notes"
+        store = _make_store()
+        store.calendarItemWithIdentifier_.return_value = mock_evt
+        svc, _, _ = _make_service(store=store)
+
+        svc.update_event("evt-42", notes="")
+
+        assert mock_evt.notes() is None
+
+    def test_clear_url_with_empty_string(self):
+        mock_evt = MockEvent("Meeting", "evt-42")
+        mock_evt._url = MagicMock()
+        store = _make_store()
+        store.calendarItemWithIdentifier_.return_value = mock_evt
+        svc, _, _ = _make_service(store=store)
+
+        svc.update_event("evt-42", url="")
+
+        assert mock_evt.URL() is None
+
 
 # ---------------------------------------------------------------------------
 # Tests: delete_event
@@ -663,6 +823,19 @@ class TestMoveEvent:
         store.saveEvent_span_commit_error_.assert_called_once_with(
             mock_evt, 0, True, None
         )
+
+    def test_success_by_calendar_id(self):
+        mock_evt = MockEvent("Meeting", "evt-42")
+        target_cal = MockCalendar("Work", "cal-w2")
+        other_cal = MockCalendar("Work", "cal-w1")
+        store = _make_store(calendars=[other_cal, target_cal])
+        store.calendarItemWithIdentifier_.return_value = mock_evt
+        svc, _, _ = _make_service(store=store)
+
+        result = svc.move_event("evt-42", target_calendar_id="cal-w2")
+
+        assert result is mock_evt
+        assert mock_evt.calendar() is target_cal
 
     def test_event_not_found_raises(self):
         store = _make_store(calendars=[MockCalendar("Personal")])
@@ -828,3 +1001,13 @@ class TestMakeNsurl:
         mock_foundation.NSURL.URLWithString_.assert_called_once_with(
             "https://example.com"
         )
+
+    def test_malformed_url_raises(self):
+        svc, _, _ = _make_service()
+
+        mock_foundation = MagicMock()
+        mock_foundation.NSURL.URLWithString_.return_value = None
+
+        with patch.dict("sys.modules", {"Foundation": mock_foundation}):
+            with pytest.raises(ValueError, match="Invalid URL"):
+                svc._make_nsurl("not a valid url")

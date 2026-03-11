@@ -69,6 +69,47 @@ class EventKitService:
                 return cal
         return None
 
+    def get_calendar_by_id(self, calendar_id: str) -> Any | None:
+        """Find a specific calendar by its identifier."""
+        for cal in self.get_all_calendars():
+            if cal.calendarIdentifier() == calendar_id:
+                return cal
+        return None
+
+    def _resolve_calendar(
+        self,
+        name: str | None = None,
+        calendar_id: str | None = None,
+    ) -> Any:
+        """Resolve a calendar by ID (preferred) or name.
+
+        When both are provided, resolves by ID and validates that the
+        calendar's title matches the given name.
+
+        Raises ValueError if the calendar cannot be found, the name/ID
+        mismatch, or neither identifier is provided.
+        """
+        if calendar_id is not None:
+            cal = self.get_calendar_by_id(calendar_id)
+            if cal is None:
+                raise ValueError(
+                    f"Calendar with id '{calendar_id}' not found"
+                )
+            if name is not None and cal.title() != name:
+                raise ValueError(
+                    f"Calendar id '{calendar_id}' resolves to "
+                    f"'{cal.title()}', not '{name}'"
+                )
+            return cal
+        if name is not None:
+            cal = self.get_calendar_by_name(name)
+            if cal is None:
+                raise ValueError(f"Calendar '{name}' not found")
+            return cal
+        raise ValueError(
+            "Either calendar name or calendar_id must be provided"
+        )
+
     def create_calendar(self, name: str) -> Any:
         """Create a new event calendar."""
         default_cal = self._store.defaultCalendarForNewEvents()
@@ -92,15 +133,20 @@ class EventKitService:
         return calendar
 
     def get_events(
-        self, calendar_name: str, start: datetime, end: datetime
+        self,
+        calendar_name: str | None,
+        start: datetime,
+        end: datetime,
+        *,
+        calendar_id: str | None = None,
     ) -> list[Any]:
         """Fetch events for a specific calendar in a date range."""
-        calendar = self.get_calendar_by_name(calendar_name)
-        if calendar is None:
-            raise ValueError(f"Calendar '{calendar_name}' not found")
+        calendar = self._resolve_calendar(
+            name=calendar_name, calendar_id=calendar_id
+        )
         ns_start = self._datetime_to_nsdate(start)
         ns_end = self._datetime_to_nsdate(end)
-        predicate = self._store.predicateForEventsWithStart_end_calendars_(
+        predicate = self._store.predicateForEventsWithStartDate_endDate_calendars_(
             ns_start, ns_end, [calendar]
         )
         events = self._store.eventsMatchingPredicate_(predicate)
@@ -115,7 +161,7 @@ class EventKitService:
             return []
         ns_start = self._datetime_to_nsdate(start)
         ns_end = self._datetime_to_nsdate(end)
-        predicate = self._store.predicateForEventsWithStart_end_calendars_(
+        predicate = self._store.predicateForEventsWithStartDate_endDate_calendars_(
             ns_start, ns_end, calendars
         )
         events = self._store.eventsMatchingPredicate_(predicate)
@@ -132,6 +178,7 @@ class EventKitService:
         url: str | None = None,
         notes: str | None = None,
         recurrence: str | None = None,
+        calendar_id: str | None = None,
     ) -> Any:
         """Create a calendar event."""
         event = self._ek.EKEvent.eventWithEventStore_(self._store)
@@ -140,10 +187,10 @@ class EventKitService:
         event.setEndDate_(self._datetime_to_nsdate(end_date))
         event.setAllDay_(is_all_day)
 
-        if calendar_name is not None:
-            calendar = self.get_calendar_by_name(calendar_name)
-            if calendar is None:
-                raise ValueError(f"Calendar '{calendar_name}' not found")
+        if calendar_name is not None or calendar_id is not None:
+            calendar = self._resolve_calendar(
+                name=calendar_name, calendar_id=calendar_id
+            )
             event.setCalendar_(calendar)
         else:
             default_cal = self._store.defaultCalendarForNewEvents()
@@ -154,14 +201,14 @@ class EventKitService:
                 )
             event.setCalendar_(default_cal)
 
-        if location is not None:
+        if location:
             event.setLocation_(location)
 
-        if url is not None:
+        if url:
             ns_url = self._make_nsurl(url)
             event.setURL_(ns_url)
 
-        if notes is not None:
+        if notes:
             event.setNotes_(notes)
 
         if recurrence:
@@ -200,12 +247,15 @@ class EventKitService:
         if is_all_day is not None:
             event.setAllDay_(is_all_day)
         if location is not None:
-            event.setLocation_(location)
+            event.setLocation_(location or None)
         if url is not None:
-            ns_url = self._make_nsurl(url)
-            event.setURL_(ns_url)
+            if url:
+                ns_url = self._make_nsurl(url)
+                event.setURL_(ns_url)
+            else:
+                event.setURL_(None)
         if notes is not None:
-            event.setNotes_(notes)
+            event.setNotes_(notes or None)
 
         success, error = self._store.saveEvent_span_commit_error_(
             event, 0, True, None
@@ -232,15 +282,21 @@ class EventKitService:
         if not success:
             raise RuntimeError(f"Failed to delete event: {error}")
 
-    def move_event(self, event_id: str, target_calendar_name: str) -> Any:
+    def move_event(
+        self,
+        event_id: str,
+        target_calendar_name: str | None = None,
+        *,
+        target_calendar_id: str | None = None,
+    ) -> Any:
         """Move an event to a different calendar."""
         event = self._find_event_by_id(event_id)
         if event is None:
             raise ValueError(f"Event '{event_id}' not found")
 
-        calendar = self.get_calendar_by_name(target_calendar_name)
-        if calendar is None:
-            raise ValueError(f"Calendar '{target_calendar_name}' not found")
+        calendar = self._resolve_calendar(
+            name=target_calendar_name, calendar_id=target_calendar_id
+        )
 
         event.setCalendar_(calendar)
         success, error = self._store.saveEvent_span_commit_error_(
@@ -270,7 +326,10 @@ class EventKitService:
         """Create an NSURL from a string."""
         import Foundation
 
-        return Foundation.NSURL.URLWithString_(url_string)
+        ns_url = Foundation.NSURL.URLWithString_(url_string)
+        if ns_url is None:
+            raise ValueError(f"Invalid URL: {url_string}")
+        return ns_url
 
     def _create_recurrence_rule(self, recurrence: str) -> Any:
         """Create an EKRecurrenceRule from a recurrence string."""
