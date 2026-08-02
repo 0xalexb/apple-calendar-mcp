@@ -2,12 +2,13 @@ from __future__ import annotations
 
 import threading
 from datetime import datetime, timedelta
+from importlib.metadata import version
 
-from mcp.server.fastmcp import FastMCP
+from mcp.server import MCPServer
 
 from apple_calendar_mcp.eventkit_service import EventKitService
 
-mcp = FastMCP("apple-calendar")
+mcp = MCPServer("apple-calendar", version=version("apple-calendar-mcp"))
 
 _service: EventKitService | None = None
 _service_lock = threading.Lock()
@@ -228,8 +229,6 @@ def main():
     import sys
 
     if len(sys.argv) > 1 and sys.argv[1] in ("--version", "-V"):
-        from importlib.metadata import version
-
         print(f"apple-calendar-mcp {version('apple-calendar-mcp')}")
         sys.exit(0)
     mcp.run()
