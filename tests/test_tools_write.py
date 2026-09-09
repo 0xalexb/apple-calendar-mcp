@@ -13,104 +13,12 @@ from apple_calendar_mcp.server import (
     quick_add,
     update_event,
 )
-
-
-# ---------------------------------------------------------------------------
-# Mock helpers
-# ---------------------------------------------------------------------------
-
-
-class MockCalendar:
-    _counter = 0
-
-    def __init__(self, name: str, identifier: str | None = None):
-        self._title = name
-        if identifier is not None:
-            self._identifier = identifier
-        else:
-            MockCalendar._counter += 1
-            self._identifier = f"cal-{MockCalendar._counter}"
-
-    def title(self):
-        return self._title
-
-    def calendarIdentifier(self):
-        return self._identifier
-
-
-class MockNSDate:
-    def __init__(self, timestamp: float):
-        self._timestamp = timestamp
-
-    def timeIntervalSince1970(self):
-        return self._timestamp
-
-
-class MockNSURL:
-    def __init__(self, url: str):
-        self._url = url
-
-    def __str__(self):
-        return self._url
-
-    def __bool__(self):
-        return True
-
-
-class MockEvent:
-    def __init__(
-        self,
-        title: str = "",
-        identifier: str = "evt-1",
-        calendar: MockCalendar | None = None,
-        start_date: MockNSDate | None = None,
-        end_date: MockNSDate | None = None,
-        is_all_day: bool = False,
-        location: str | None = None,
-        url: MockNSURL | None = None,
-        notes: str | None = None,
-        has_recurrence: bool = False,
-    ):
-        self._title = title
-        self._identifier = identifier
-        self._calendar = calendar
-        self._start_date = start_date
-        self._end_date = end_date
-        self._is_all_day = is_all_day
-        self._location = location
-        self._url = url
-        self._notes = notes
-        self._has_recurrence = has_recurrence
-
-    def title(self):
-        return self._title
-
-    def calendarItemIdentifier(self):
-        return self._identifier
-
-    def calendar(self):
-        return self._calendar
-
-    def startDate(self):
-        return self._start_date
-
-    def endDate(self):
-        return self._end_date
-
-    def isAllDay(self):
-        return self._is_all_day
-
-    def location(self):
-        return self._location
-
-    def URL(self):
-        return self._url
-
-    def notes(self):
-        return self._notes
-
-    def hasRecurrenceRules(self):
-        return self._has_recurrence
+from tests.conftest import (
+    MockCalendar,
+    MockEvent,
+    MockNSDate,
+    MockNSURL,
+)
 
 
 @pytest.fixture()
