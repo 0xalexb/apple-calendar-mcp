@@ -6,148 +6,21 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from apple_calendar_mcp.eventkit_service import EventKitService
-
-
-# ---------------------------------------------------------------------------
-# Mock helpers
-# ---------------------------------------------------------------------------
-
-
-class MockCalendar:
-    """Simulates an EKCalendar object."""
-
-    def __init__(self, name: str, identifier: str = "cal-1"):
-        self._title = name
-        self._identifier = identifier
-        self._source = MagicMock()
-
-    def title(self):
-        return self._title
-
-    def setTitle_(self, title):
-        self._title = title
-
-    def calendarIdentifier(self):
-        return self._identifier
-
-    def source(self):
-        return self._source
-
-    def setSource_(self, source):
-        self._source = source
-
-
-class MockNSDate:
-    """Simulates an NSDate object."""
-
-    def __init__(self, timestamp: float):
-        self._timestamp = timestamp
-
-    def timeIntervalSince1970(self):
-        return self._timestamp
-
-
-class MockEvent:
-    """Simulates an EKEvent object."""
-
-    def __init__(self, title: str = "", identifier: str = "evt-1"):
-        self._title = title
-        self._identifier = identifier
-        self._calendar = None
-        self._start_date = None
-        self._end_date = None
-        self._is_all_day = False
-        self._location = None
-        self._url = None
-        self._notes = None
-        self._recurrence_rules: list = []
-
-    def title(self):
-        return self._title
-
-    def setTitle_(self, title):
-        self._title = title
-
-    def calendarItemIdentifier(self):
-        return self._identifier
-
-    def calendar(self):
-        return self._calendar
-
-    def setCalendar_(self, calendar):
-        self._calendar = calendar
-
-    def startDate(self):
-        return self._start_date
-
-    def setStartDate_(self, date):
-        self._start_date = date
-
-    def endDate(self):
-        return self._end_date
-
-    def setEndDate_(self, date):
-        self._end_date = date
-
-    def isAllDay(self):
-        return self._is_all_day
-
-    def setAllDay_(self, all_day):
-        self._is_all_day = all_day
-
-    def location(self):
-        return self._location
-
-    def setLocation_(self, location):
-        self._location = location
-
-    def URL(self):
-        return self._url
-
-    def setURL_(self, url):
-        self._url = url
-
-    def notes(self):
-        return self._notes
-
-    def setNotes_(self, notes):
-        self._notes = notes
-
-    def hasRecurrenceRules(self):
-        return bool(self._recurrence_rules)
-
-    def addRecurrenceRule_(self, rule):
-        self._recurrence_rules.append(rule)
-
-
-def _make_ek_module():
-    """Create a mock EventKit module with required constants and classes."""
-    ek = MagicMock()
-    ek.EKEntityTypeEvent = 0
-    return ek
-
-
-def _make_store(calendars=None, events=None):
-    """Create a mock EKEventStore."""
-    store = MagicMock()
-    store.calendarsForEntityType_.return_value = calendars or []
-
-    default_cal = MockCalendar("Default", "default-cal")
-    store.defaultCalendarForNewEvents.return_value = default_cal
-
-    store.eventsMatchingPredicate_.return_value = events
-    store.saveCalendar_commit_error_.return_value = (True, None)
-    store.saveEvent_span_commit_error_.return_value = (True, None)
-    store.removeEvent_span_commit_error_.return_value = (True, None)
-    return store
+from tests.conftest import (
+    MockCalendar,
+    MockEvent,
+    MockNSDate,
+    make_ek_module,
+    make_store,
+)
 
 
 def _make_service(calendars=None, events=None, store=None, ek=None):
     """Create an EventKitService with mocked dependencies."""
     if ek is None:
-        ek = _make_ek_module()
+        ek = make_ek_module()
     if store is None:
-        store = _make_store(calendars=calendars, events=events)
+        store = make_store(calendars=calendars, events=events)
     return EventKitService(event_store=store, ek_module=ek), store, ek
 
 
@@ -279,10 +152,10 @@ class TestResolveCalendar:
 
 class TestCreateCalendar:
     def test_success(self):
-        ek = _make_ek_module()
+        ek = make_ek_module()
         mock_cal = MockCalendar("", "new-cal")
         ek.EKCalendar.calendarForEntityType_eventStore_.return_value = mock_cal
-        store = _make_store()
+        store = make_store()
         svc = EventKitService(event_store=store, ek_module=ek)
 
         result = svc.create_calendar("Work")
@@ -294,10 +167,10 @@ class TestCreateCalendar:
         )
 
     def test_failure_raises(self):
-        ek = _make_ek_module()
+        ek = make_ek_module()
         mock_cal = MockCalendar("", "new-cal")
         ek.EKCalendar.calendarForEntityType_eventStore_.return_value = mock_cal
-        store = _make_store()
+        store = make_store()
         store.saveCalendar_commit_error_.return_value = (False, "save error")
         svc = EventKitService(event_store=store, ek_module=ek)
 
@@ -305,8 +178,8 @@ class TestCreateCalendar:
             svc.create_calendar("Work")
 
     def test_no_default_calendar_raises(self):
-        ek = _make_ek_module()
-        store = _make_store()
+        ek = make_ek_module()
+        store = make_store()
         store.defaultCalendarForNewEvents.return_value = None
         svc = EventKitService(event_store=store, ek_module=ek)
 
@@ -436,10 +309,10 @@ class TestGetAllEvents:
 
 class TestCreateEvent:
     def test_basic_with_default_calendar(self):
-        ek = _make_ek_module()
+        ek = make_ek_module()
         mock_evt = MockEvent()
         ek.EKEvent.eventWithEventStore_.return_value = mock_evt
-        store = _make_store()
+        store = make_store()
         svc = EventKitService(event_store=store, ek_module=ek)
 
         mock_foundation = MagicMock()
@@ -458,11 +331,11 @@ class TestCreateEvent:
         )
 
     def test_with_specific_calendar(self):
-        ek = _make_ek_module()
+        ek = make_ek_module()
         mock_evt = MockEvent()
         ek.EKEvent.eventWithEventStore_.return_value = mock_evt
         target_cal = MockCalendar("Work")
-        store = _make_store(calendars=[target_cal])
+        store = make_store(calendars=[target_cal])
         svc = EventKitService(event_store=store, ek_module=ek)
 
         mock_foundation = MagicMock()
@@ -477,10 +350,10 @@ class TestCreateEvent:
         assert result.calendar() is target_cal
 
     def test_with_all_options(self):
-        ek = _make_ek_module()
+        ek = make_ek_module()
         mock_evt = MockEvent()
         ek.EKEvent.eventWithEventStore_.return_value = mock_evt
-        store = _make_store()
+        store = make_store()
         svc = EventKitService(event_store=store, ek_module=ek)
 
         mock_foundation = MagicMock()
@@ -500,12 +373,12 @@ class TestCreateEvent:
         assert mock_evt.isAllDay() is False
 
     def test_with_recurrence(self):
-        ek = _make_ek_module()
+        ek = make_ek_module()
         mock_evt = MockEvent()
         ek.EKEvent.eventWithEventStore_.return_value = mock_evt
         mock_rule = MagicMock()
         ek.EKRecurrenceRule.alloc().initRecurrenceWithFrequency_interval_end_.return_value = mock_rule
-        store = _make_store()
+        store = make_store()
         svc = EventKitService(event_store=store, ek_module=ek)
 
         mock_foundation = MagicMock()
@@ -520,12 +393,12 @@ class TestCreateEvent:
         assert mock_rule in mock_evt._recurrence_rules
 
     def test_with_calendar_id(self):
-        ek = _make_ek_module()
+        ek = make_ek_module()
         mock_evt = MockEvent()
         ek.EKEvent.eventWithEventStore_.return_value = mock_evt
         target_cal = MockCalendar("Work", "cal-w2")
         other_cal = MockCalendar("Work", "cal-w1")
-        store = _make_store(calendars=[other_cal, target_cal])
+        store = make_store(calendars=[other_cal, target_cal])
         svc = EventKitService(event_store=store, ek_module=ek)
 
         mock_foundation = MagicMock()
@@ -540,10 +413,10 @@ class TestCreateEvent:
         assert result.calendar() is target_cal
 
     def test_calendar_not_found_raises(self):
-        ek = _make_ek_module()
+        ek = make_ek_module()
         mock_evt = MockEvent()
         ek.EKEvent.eventWithEventStore_.return_value = mock_evt
-        store = _make_store(calendars=[])
+        store = make_store(calendars=[])
         svc = EventKitService(event_store=store, ek_module=ek)
 
         mock_foundation = MagicMock()
@@ -559,10 +432,10 @@ class TestCreateEvent:
                 )
 
     def test_save_failure_raises(self):
-        ek = _make_ek_module()
+        ek = make_ek_module()
         mock_evt = MockEvent()
         ek.EKEvent.eventWithEventStore_.return_value = mock_evt
-        store = _make_store()
+        store = make_store()
         store.saveEvent_span_commit_error_.return_value = (False, "disk full")
         svc = EventKitService(event_store=store, ek_module=ek)
 
@@ -576,10 +449,10 @@ class TestCreateEvent:
                 )
 
     def test_no_default_calendar_raises(self):
-        ek = _make_ek_module()
+        ek = make_ek_module()
         mock_evt = MockEvent()
         ek.EKEvent.eventWithEventStore_.return_value = mock_evt
-        store = _make_store()
+        store = make_store()
         store.defaultCalendarForNewEvents.return_value = None
         svc = EventKitService(event_store=store, ek_module=ek)
 
@@ -593,10 +466,10 @@ class TestCreateEvent:
                 )
 
     def test_all_day_event(self):
-        ek = _make_ek_module()
+        ek = make_ek_module()
         mock_evt = MockEvent()
         ek.EKEvent.eventWithEventStore_.return_value = mock_evt
-        store = _make_store()
+        store = make_store()
         svc = EventKitService(event_store=store, ek_module=ek)
 
         mock_foundation = MagicMock()
@@ -619,7 +492,7 @@ class TestCreateEvent:
 class TestUpdateEvent:
     def test_update_title(self):
         mock_evt = MockEvent("Old Title", "evt-42")
-        store = _make_store()
+        store = make_store()
         store.calendarItemWithIdentifier_.return_value = mock_evt
         svc, _, _ = _make_service(store=store)
 
@@ -633,7 +506,7 @@ class TestUpdateEvent:
 
     def test_update_multiple_fields(self):
         mock_evt = MockEvent("Meeting", "evt-42")
-        store = _make_store()
+        store = make_store()
         store.calendarItemWithIdentifier_.return_value = mock_evt
         svc, _, _ = _make_service(store=store)
 
@@ -653,7 +526,7 @@ class TestUpdateEvent:
         assert mock_evt.isAllDay() is True
 
     def test_not_found_raises(self):
-        store = _make_store()
+        store = make_store()
         store.calendarItemWithIdentifier_.return_value = None
         svc, _, _ = _make_service(store=store)
 
@@ -662,7 +535,7 @@ class TestUpdateEvent:
 
     def test_save_failure_raises(self):
         mock_evt = MockEvent("Meeting", "evt-42")
-        store = _make_store()
+        store = make_store()
         store.calendarItemWithIdentifier_.return_value = mock_evt
         store.saveEvent_span_commit_error_.return_value = (False, "err")
         svc, _, _ = _make_service(store=store)
@@ -672,7 +545,7 @@ class TestUpdateEvent:
 
     def test_no_changes(self):
         mock_evt = MockEvent("Meeting", "evt-42")
-        store = _make_store()
+        store = make_store()
         store.calendarItemWithIdentifier_.return_value = mock_evt
         svc, _, _ = _make_service(store=store)
 
@@ -683,7 +556,7 @@ class TestUpdateEvent:
 
     def test_update_url(self):
         mock_evt = MockEvent("Meeting", "evt-42")
-        store = _make_store()
+        store = make_store()
         store.calendarItemWithIdentifier_.return_value = mock_evt
         svc, _, _ = _make_service(store=store)
 
@@ -697,7 +570,7 @@ class TestUpdateEvent:
 
     def test_update_dates(self):
         mock_evt = MockEvent("Meeting", "evt-42")
-        store = _make_store()
+        store = make_store()
         store.calendarItemWithIdentifier_.return_value = mock_evt
         svc, _, _ = _make_service(store=store)
 
@@ -714,7 +587,7 @@ class TestUpdateEvent:
     def test_clear_location_with_empty_string(self):
         mock_evt = MockEvent("Meeting", "evt-42")
         mock_evt._location = "Office"
-        store = _make_store()
+        store = make_store()
         store.calendarItemWithIdentifier_.return_value = mock_evt
         svc, _, _ = _make_service(store=store)
 
@@ -725,7 +598,7 @@ class TestUpdateEvent:
     def test_clear_notes_with_empty_string(self):
         mock_evt = MockEvent("Meeting", "evt-42")
         mock_evt._notes = "Some notes"
-        store = _make_store()
+        store = make_store()
         store.calendarItemWithIdentifier_.return_value = mock_evt
         svc, _, _ = _make_service(store=store)
 
@@ -736,7 +609,7 @@ class TestUpdateEvent:
     def test_clear_url_with_empty_string(self):
         mock_evt = MockEvent("Meeting", "evt-42")
         mock_evt._url = MagicMock()
-        store = _make_store()
+        store = make_store()
         store.calendarItemWithIdentifier_.return_value = mock_evt
         svc, _, _ = _make_service(store=store)
 
@@ -753,7 +626,7 @@ class TestUpdateEvent:
 class TestDeleteEvent:
     def test_success_this_span(self):
         mock_evt = MockEvent("Meeting", "evt-42")
-        store = _make_store()
+        store = make_store()
         store.calendarItemWithIdentifier_.return_value = mock_evt
         svc, _, _ = _make_service(store=store)
 
@@ -765,7 +638,7 @@ class TestDeleteEvent:
 
     def test_success_future_span(self):
         mock_evt = MockEvent("Meeting", "evt-42")
-        store = _make_store()
+        store = make_store()
         store.calendarItemWithIdentifier_.return_value = mock_evt
         svc, _, _ = _make_service(store=store)
 
@@ -776,7 +649,7 @@ class TestDeleteEvent:
         )
 
     def test_not_found_raises(self):
-        store = _make_store()
+        store = make_store()
         store.calendarItemWithIdentifier_.return_value = None
         svc, _, _ = _make_service(store=store)
 
@@ -785,7 +658,7 @@ class TestDeleteEvent:
 
     def test_invalid_span_raises(self):
         mock_evt = MockEvent("Meeting", "evt-42")
-        store = _make_store()
+        store = make_store()
         store.calendarItemWithIdentifier_.return_value = mock_evt
         svc, _, _ = _make_service(store=store)
 
@@ -794,7 +667,7 @@ class TestDeleteEvent:
 
     def test_remove_failure_raises(self):
         mock_evt = MockEvent("Meeting", "evt-42")
-        store = _make_store()
+        store = make_store()
         store.calendarItemWithIdentifier_.return_value = mock_evt
         store.removeEvent_span_commit_error_.return_value = (False, "err")
         svc, _, _ = _make_service(store=store)
@@ -812,7 +685,7 @@ class TestMoveEvent:
     def test_success(self):
         mock_evt = MockEvent("Meeting", "evt-42")
         target_cal = MockCalendar("Personal", "cal-2")
-        store = _make_store(calendars=[target_cal])
+        store = make_store(calendars=[target_cal])
         store.calendarItemWithIdentifier_.return_value = mock_evt
         svc, _, _ = _make_service(store=store)
 
@@ -828,7 +701,7 @@ class TestMoveEvent:
         mock_evt = MockEvent("Meeting", "evt-42")
         target_cal = MockCalendar("Work", "cal-w2")
         other_cal = MockCalendar("Work", "cal-w1")
-        store = _make_store(calendars=[other_cal, target_cal])
+        store = make_store(calendars=[other_cal, target_cal])
         store.calendarItemWithIdentifier_.return_value = mock_evt
         svc, _, _ = _make_service(store=store)
 
@@ -838,7 +711,7 @@ class TestMoveEvent:
         assert mock_evt.calendar() is target_cal
 
     def test_event_not_found_raises(self):
-        store = _make_store(calendars=[MockCalendar("Personal")])
+        store = make_store(calendars=[MockCalendar("Personal")])
         store.calendarItemWithIdentifier_.return_value = None
         svc, _, _ = _make_service(store=store)
 
@@ -847,7 +720,7 @@ class TestMoveEvent:
 
     def test_target_calendar_not_found_raises(self):
         mock_evt = MockEvent("Meeting", "evt-42")
-        store = _make_store(calendars=[])
+        store = make_store(calendars=[])
         store.calendarItemWithIdentifier_.return_value = mock_evt
         svc, _, _ = _make_service(store=store)
 
@@ -857,7 +730,7 @@ class TestMoveEvent:
     def test_save_failure_raises(self):
         mock_evt = MockEvent("Meeting", "evt-42")
         target_cal = MockCalendar("Personal")
-        store = _make_store(calendars=[target_cal])
+        store = make_store(calendars=[target_cal])
         store.calendarItemWithIdentifier_.return_value = mock_evt
         store.saveEvent_span_commit_error_.return_value = (False, "err")
         svc, _, _ = _make_service(store=store)
@@ -874,7 +747,7 @@ class TestMoveEvent:
 class TestFindEventById:
     def test_found(self):
         mock_evt = MockEvent("Meeting", "evt-42")
-        store = _make_store()
+        store = make_store()
         store.calendarItemWithIdentifier_.return_value = mock_evt
         svc, _, _ = _make_service(store=store)
 
@@ -882,7 +755,7 @@ class TestFindEventById:
         store.calendarItemWithIdentifier_.assert_called_once_with("evt-42")
 
     def test_not_found(self):
-        store = _make_store()
+        store = make_store()
         store.calendarItemWithIdentifier_.return_value = None
         svc, _, _ = _make_service(store=store)
 
@@ -907,10 +780,10 @@ class TestCreateRecurrenceRule:
         ],
     )
     def test_valid_recurrence(self, recurrence, freq):
-        ek = _make_ek_module()
+        ek = make_ek_module()
         mock_rule = MagicMock()
         ek.EKRecurrenceRule.alloc().initRecurrenceWithFrequency_interval_end_.return_value = mock_rule
-        svc = EventKitService(event_store=_make_store(), ek_module=ek)
+        svc = EventKitService(event_store=make_store(), ek_module=ek)
 
         result = svc._create_recurrence_rule(recurrence)
 
