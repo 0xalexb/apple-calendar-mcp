@@ -30,6 +30,12 @@ uv run apple-calendar-mcp        # Run server
 - Span values: `_SPAN_MAP = {"this": 0, "future": 1}` for save/delete operations
 - Recurrence: `_RECURRENCE_MAP` → `EKRecurrenceFrequency` values (daily=0, weekly=1, monthly=2, yearly=3)
 - Calendar fetching: synchronous `eventsMatchingPredicate:` (not async like reminders)
+- `server.py` must never import EventKit — its formatters duck-type pyobjc objects, which is what
+  lets the tests run without a macOS runtime. Enum maps there use hardcoded int literals
+- Event ids are composite for recurring events: `<calendarItemIdentifier>/<occurrence ISO>`. All
+  occurrences share one `calendarItemIdentifier`, so `calendarItemWithIdentifier:` alone always
+  returns the first occurrence
+- Read-only in public EventKit, do not add setters: `status`, `attendees`, `structuredLocation`
 
 ## Error Handling
 

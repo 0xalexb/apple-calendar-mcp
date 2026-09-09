@@ -243,17 +243,17 @@ are addressable a series-wide edit is expressible too. `delete_event` already ha
 - Modify: `tests/test_tools_write.py`
 - Modify: `tests/test_eventkit_service.py`
 
-- [ ] create `tests/conftest.py` with `MockCalendar`, `MockSource`, `MockNSDate`, `MockNSURL`,
+- [x] create `tests/conftest.py` with `MockCalendar`, `MockSource`, `MockNSDate`, `MockNSURL`,
       `MockEvent`, `MockParticipant`, `MockAlarm`, `MockRecurrenceRule`, `MockRecurrenceEnd`,
       `MockDayOfWeek`, `MockTimeZone` — keeping the existing `Mock` prefix, not `Fake`
-- [ ] give `MockEvent` a default for every selector `_format_event` will call, so a fake built with
+- [x] give `MockEvent` a default for every selector `_format_event` will call, so a fake built with
       no arguments still formats cleanly
-- [ ] delete the three duplicated per-file fake definitions and import from `conftest` instead
+- [x] delete the three duplicated per-file fake definitions and import from `conftest` instead
       ⚠️ `MockCalendar._counter` is class state shared across tests; keep the auto-increment
       behaviour when merging the three variants or ids will collide
-- [ ] verify no test file still defines its own `MockEvent`:
+- [x] verify no test file still defines its own `MockEvent`:
       `grep -c "^class MockEvent" tests/test_*.py` must print `0` for all three
-- [ ] run `uv run pytest` — must pass with the same test count as before this task
+- [x] run `uv run pytest` — must pass with the same test count as before this task
 
 ### Task 2: Add enum maps and the participant, alarm, and recurrence formatters
 
@@ -261,17 +261,17 @@ are addressable a series-wide edit is expressible too. `delete_event` already ha
 - Modify: `src/apple_calendar_mcp/server.py`
 - Modify: `tests/test_tools_read.py`
 
-- [ ] add the ten `_EVENT_STATUS` … `_WEEKDAY` module-level maps from Technical Details
-- [ ] add `_format_participant`, `_format_alarm`, `_format_recurrence_rule`, each returning the
+- [x] add the ten `_EVENT_STATUS` … `_WEEKDAY` module-level maps from Technical Details
+- [x] add `_format_participant`, `_format_alarm`, `_format_recurrence_rule`, each returning the
       documented shape and falling back to the raw int for an unmapped enum value
-- [ ] `_format_alarm` converts `relativeOffset()` seconds to `relative_offset_minutes`, and omits
+- [x] `_format_alarm` converts `relativeOffset()` seconds to `relative_offset_minutes`, and omits
       `proximity` when it maps to `"none"`
-- [ ] `_format_recurrence_rule` omits every optional axis that is nil or empty, and renders
+- [x] `_format_recurrence_rule` omits every optional axis that is nil or empty, and renders
       `recurrenceEnd()` as `{"date": ...}` or `{"occurrence_count": ...}`
-- [ ] write tests covering each enum map's full domain, both alarm variants, and a recurrence rule
+- [x] write tests covering each enum map's full domain, both alarm variants, and a recurrence rule
       with and without days/end
-- [ ] write tests for the unmapped-enum fallback and for a nil `recurrenceEnd`
-- [ ] run tests — must pass before Task 3
+- [x] write tests for the unmapped-enum fallback and for a nil `recurrenceEnd`
+- [x] run tests — must pass before Task 3
 
 ### Task 3: Expand _format_event with the new fields
 
@@ -279,16 +279,16 @@ are addressable a series-wide edit is expressible too. `delete_event` already ha
 - Modify: `src/apple_calendar_mcp/server.py`
 - Modify: `tests/test_tools_read.py`
 
-- [ ] add the always-present scalars: `status`, `availability`, `time_zone`, `is_detached`,
+- [x] add the always-present scalars: `status`, `availability`, `time_zone`, `is_detached`,
       `occurrence_date`, `created_at`, `last_modified`, `external_id`, `series_id`
-- [ ] add `organizer`, `attendees`, `alarms`, `recurrence_rules`, `geo`, each omitted from the dict
+- [x] add `organizer`, `attendees`, `alarms`, `recurrence_rules`, `geo`, each omitted from the dict
       entirely when nil or empty
-- [ ] keep all 11 existing keys byte-identical, `has_recurrence` included
+- [x] keep all 11 existing keys byte-identical, `has_recurrence` included
       ⚠️ `_format_event` currently calls `event.calendar()` twice; resolve it once into a local
-- [ ] write a test asserting a fully-populated event produces every key
-- [ ] write a test asserting a minimal event's dict contains none of the five optional keys —
+- [x] write a test asserting a fully-populated event produces every key
+- [x] write a test asserting a minimal event's dict contains none of the five optional keys —
       `assert set(result) & {"organizer", "attendees", "alarms", "recurrence_rules", "geo"} == set()`
-- [ ] run tests — must pass before Task 4
+- [x] run tests — must pass before Task 4
 
 ### Task 4: Expand list_calendars via _format_calendar
 
@@ -296,15 +296,15 @@ are addressable a series-wide edit is expressible too. `delete_event` already ha
 - Modify: `src/apple_calendar_mcp/server.py`
 - Modify: `tests/test_tools_read.py`
 
-- [ ] add `_format_calendar` returning `{id, name, type, source, source_type, writable, immutable,
+- [x] add `_format_calendar` returning `{id, name, type, source, source_type, writable, immutable,
       subscribed, color}`
-- [ ] rewrite `list_calendars` to spread `_format_calendar(cal)` and add `upcoming_event_count`
-- [ ] handle `cal.source()` returning nil — `source` and `source_type` become `None`, not a crash
-- [ ] update the three exact-dict-equality assertions at `tests/test_tools_read.py:248,249,266` by
+- [x] rewrite `list_calendars` to spread `_format_calendar(cal)` and add `upcoming_event_count`
+- [x] handle `cal.source()` returning nil — `source` and `source_type` become `None`, not a crash
+- [x] update the three exact-dict-equality assertions at `tests/test_tools_read.py:248,249,266` by
       extending the expected dicts with the new keys; keep them exact-equality, do not weaken them
       to subset checks and do not delete any test
-- [ ] write tests for a read-only calendar (`writable is False`) and a subscribed calendar
-- [ ] run tests — must pass before Task 5
+- [x] write tests for a read-only calendar (`writable is False`) and a subscribed calendar
+- [x] run tests — must pass before Task 5
 
 ### Task 5: Add availability, time_zone, and alarms to EventKitService
 
@@ -312,17 +312,17 @@ are addressable a series-wide edit is expressible too. `delete_event` already ha
 - Modify: `src/apple_calendar_mcp/eventkit_service.py`
 - Modify: `tests/test_eventkit_service.py`
 
-- [ ] add `_AVAILABILITY_MAP` and `_WEEKDAY_MAP` class attributes beside `_RECURRENCE_MAP`
-- [ ] add `availability`, `time_zone`, `alarm_minutes_before` parameters to `create_event` and
+- [x] add `_AVAILABILITY_MAP` and `_WEEKDAY_MAP` class attributes beside `_RECURRENCE_MAP`
+- [x] add `availability`, `time_zone`, `alarm_minutes_before` parameters to `create_event` and
       `update_event`, applying `setAvailability_`, `setTimeZone_`, `setAlarms_`
-- [ ] add a `_make_nstimezone` helper mirroring `_make_nsurl`, raising
+- [x] add a `_make_nstimezone` helper mirroring `_make_nsurl`, raising
       `ValueError(f"Invalid time zone: {name}")` when `timeZoneWithName_` returns `None`
-- [ ] make `alarm_minutes_before=[]` clear alarms while `None` leaves them untouched, matching the
+- [x] make `alarm_minutes_before=[]` clear alarms while `None` leaves them untouched, matching the
       existing `location or None` idiom
-- [ ] write tests asserting the offset conversion: 10 minutes must call
+- [x] write tests asserting the offset conversion: 10 minutes must call
       `alarmWithRelativeOffset_` with `-600`
-- [ ] write tests for invalid availability and invalid time zone both raising `ValueError`
-- [ ] run tests — must pass before Task 6
+- [x] write tests for invalid availability and invalid time zone both raising `ValueError`
+- [x] run tests — must pass before Task 6
 
 ### Task 6: Replace the recurrence string with a structured object
 
@@ -330,19 +330,19 @@ are addressable a series-wide edit is expressible too. `delete_event` already ha
 - Modify: `src/apple_calendar_mcp/eventkit_service.py`
 - Modify: `tests/test_eventkit_service.py`
 
-- [ ] add a `_normalize_recurrence` helper turning `"weekly"` into `{"frequency": "weekly"}` and
+- [x] add a `_normalize_recurrence` helper turning `"weekly"` into `{"frequency": "weekly"}` and
       passing a dict through, so existing callers are unaffected
-- [ ] rewrite `_create_recurrence_rule` to use the full
+- [x] rewrite `_create_recurrence_rule` to use the full
       `initRecurrenceWithFrequency_interval_daysOfTheWeek_..._end_` selector, passing `None` for
       unexposed axes
-- [ ] build `recurrenceEnd` from `end_date` or `count`, raising `ValueError` when both are given
-- [ ] map `days_of_week` names through `_WEEKDAY_MAP` into `EKRecurrenceDayOfWeek.dayOfWeek_`,
+- [x] build `recurrenceEnd` from `end_date` or `count`, raising `ValueError` when both are given
+- [x] map `days_of_week` names through `_WEEKDAY_MAP` into `EKRecurrenceDayOfWeek.dayOfWeek_`,
       raising `ValueError` on an unknown weekday name
-- [ ] add recurrence handling to `update_event`, where `recurrence=""` clears the rules
-- [ ] write a test asserting `recurrence="weekly"` produces frequency `1`, interval `1`, and `None`
+- [x] add recurrence handling to `update_event`, where `recurrence=""` clears the rules
+- [x] write a test asserting `recurrence="weekly"` produces frequency `1`, interval `1`, and `None`
       for every other argument — proving no behaviour change for existing callers
-- [ ] write tests for interval, days_of_week, end_date, count, and the both-set `ValueError`
-- [ ] run tests — must pass before Task 7
+- [x] write tests for interval, days_of_week, end_date, count, and the both-set `ValueError`
+- [x] run tests — must pass before Task 7
 
 ### Task 7: Surface the new write parameters on the MCP tools
 
@@ -350,17 +350,17 @@ are addressable a series-wide edit is expressible too. `delete_event` already ha
 - Modify: `src/apple_calendar_mcp/server.py`
 - Modify: `tests/test_tools_write.py`
 
-- [ ] add `availability`, `time_zone`, `alarm_minutes_before` and the widened `recurrence` to the
+- [x] add `availability`, `time_zone`, `alarm_minutes_before` and the widened `recurrence` to the
       `create_event` and `update_event` tool signatures
-- [ ] update both docstrings — they are the tool descriptions the model reads, so spell out the
+- [x] update both docstrings — they are the tool descriptions the model reads, so spell out the
       `recurrence` object's keys and the `end_date`/`count` exclusivity
-- [ ] verify `create_event` has 13 parameters, not 17:
+- [x] verify `create_event` has 13 parameters, not 17:
       `uv run python -c "import inspect; from apple_calendar_mcp import server; print(len(inspect.signature(server.create_event.fn).parameters))"`
       ⚠️ if `MCPServer.tool()` does not expose the wrapped function as `.fn`, read the attribute the
       decorator actually sets rather than changing the assertion to something weaker
-- [ ] write tests asserting each new parameter reaches `EventKitService` with the right value
-- [ ] write tests for `recurrence` passed as a string and as a dict through the tool layer
-- [ ] run tests — must pass before Task 8
+- [x] write tests asserting each new parameter reaches `EventKitService` with the right value
+- [x] write tests for `recurrence` passed as a string and as a dict through the tool layer
+- [x] run tests — must pass before Task 8
 
 ### Task 8: Make event ids occurrence-aware
 
@@ -370,20 +370,20 @@ are addressable a series-wide edit is expressible too. `delete_event` already ha
 - Modify: `tests/test_tools_read.py`
 - Modify: `tests/test_eventkit_service.py`
 
-- [ ] in `_format_event`, emit the composite `"<identifier>/<occurrence ISO>"` id only when the
+- [x] in `_format_event`, emit the composite `"<identifier>/<occurrence ISO>"` id only when the
       event has recurrence rules and a non-nil `occurrenceDate()`; always emit bare `series_id`
-- [ ] split on the first `/` in `_find_event_by_id`, keeping the bare-identifier path byte-identical
+- [x] split on the first `/` in `_find_event_by_id`, keeping the bare-identifier path byte-identical
       to today's behaviour
-- [ ] for the composite path, resolve the series, then run
+- [x] for the composite path, resolve the series, then run
       `predicateForEventsWithStartDate_endDate_calendars_` over occurrence_date ± 1 day scoped to
       the series' calendar and match on identifier plus `occurrenceDate()` within 1 second
       ⚠️ the predicate is inclusive of overlapping events, so the identifier check is what makes
       the match exact — do not rely on the window alone
-- [ ] raise `ValueError(f"Occurrence '{event_id}' not found")` when nothing matches
-- [ ] write a round-trip test: format a recurring occurrence, feed its `id` back to
+- [x] raise `ValueError(f"Occurrence '{event_id}' not found")` when nothing matches
+- [x] write a round-trip test: format a recurring occurrence, feed its `id` back to
       `_find_event_by_id`, and assert the returned object is the same occurrence — not the first
-- [ ] write tests for a non-recurring id (unchanged path) and for the occurrence-not-found error
-- [ ] run tests — must pass before Task 9
+- [x] write tests for a non-recurring id (unchanged path) and for the occurrence-not-found error
+- [x] run tests — must pass before Task 9
 
 ### Task 9: Add span to update_event
 
@@ -393,38 +393,38 @@ are addressable a series-wide edit is expressible too. `delete_event` already ha
 - Modify: `tests/test_eventkit_service.py`
 - Modify: `tests/test_tools_write.py`
 
-- [ ] add `span: str = "this"` to `EventKitService.update_event`, resolved through `_SPAN_MAP` and
+- [x] add `span: str = "this"` to `EventKitService.update_event`, resolved through `_SPAN_MAP` and
       passed to `saveEvent_span_commit_error_` in place of the hardcoded `0`
-- [ ] add the same parameter to the `update_event` tool, documenting it the way `delete_event`
+- [x] add the same parameter to the `update_event` tool, documenting it the way `delete_event`
       already documents its own
-- [ ] raise `ValueError` on an invalid span, matching `delete_event`'s existing message
-- [ ] write a test asserting `span="future"` reaches `saveEvent_span_commit_error_` as `1`
-- [ ] write a test asserting the default still passes `0`
-- [ ] run tests — must pass before Task 10
+- [x] raise `ValueError` on an invalid span, matching `delete_event`'s existing message
+- [x] write a test asserting `span="future"` reaches `saveEvent_span_commit_error_` as `1`
+- [x] write a test asserting the default still passes `0`
+- [x] run tests — must pass before Task 10
 
 ### Task 10: Verify acceptance criteria
 
-- [ ] verify every field listed in Technical Details appears in `_format_event` or
+- [x] verify every field listed in Technical Details appears in `_format_event` or
       `_format_calendar` output, and that nothing in the "not exported" list does
-- [ ] verify the read-only trio has no setter: `grep -c "setStatus_\|setAttendees_\|setStructuredLocation_" src/apple_calendar_mcp/eventkit_service.py` must print `0`
-- [ ] verify `server.py` still does not import EventKit:
+- [x] verify the read-only trio has no setter: `grep -c "setStatus_\|setAttendees_\|setStructuredLocation_" src/apple_calendar_mcp/eventkit_service.py` must print `0`
+- [x] verify `server.py` still does not import EventKit:
       `grep -c "^import EventKit\|^from EventKit" src/apple_calendar_mcp/server.py` must print `0`
-- [ ] re-run the two re-derivation commands in Technical Details and confirm the expected output
-- [ ] run the full suite: `uv run pytest` — all tests pass, count is strictly greater than the
+- [x] re-run the two re-derivation commands in Technical Details and confirm the expected output
+- [x] run the full suite: `uv run pytest` — all tests pass, count is strictly greater than the
       pre-change count
-- [ ] verify the server still starts:
+- [x] verify the server still starts:
       `echo '{"jsonrpc":"2.0","id":0,"method":"initialize","params":{"protocolVersion":"2024-11-05","capabilities":{},"clientInfo":{"name":"test","version":"1.0"}}}' | uv run apple-calendar-mcp`
       returns a JSON-RPC result, not a traceback
 
 ### Task 11: [Final] Update documentation
 
-- [ ] document the `_format_event` and `list_calendars` field sets in `README.md`, including which
+- [x] document the `_format_event` and `list_calendars` field sets in `README.md`, including which
       keys are omitted when empty
-- [ ] document the `recurrence` object shape and note that the plain string still works
-- [ ] note in `README.md` that ids of recurring events are composite, and what `series_id` is for
-- [ ] add to `CLAUDE.md`: the "`server.py` must not import EventKit" constraint and the composite
+- [x] document the `recurrence` object shape and note that the plain string still works
+- [x] note in `README.md` that ids of recurring events are composite, and what `series_id` is for
+- [x] add to `CLAUDE.md`: the "`server.py` must not import EventKit" constraint and the composite
       id format, both non-obvious and easy to break
-- [ ] move this plan to `docs/plans/completed/`
+- [x] move this plan to `docs/plans/completed/`
 
 ## Post-Completion
 
