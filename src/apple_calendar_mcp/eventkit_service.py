@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import threading
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Any
 
 
@@ -16,6 +16,23 @@ class EventKitService:
     }
 
     _SPAN_MAP = {"this": 0, "future": 1}
+
+    _AVAILABILITY_MAP = {
+        "busy": 0,
+        "free": 1,
+        "tentative": 2,
+        "unavailable": 3,
+    }
+
+    _WEEKDAY_MAP = {
+        "sunday": 1,
+        "monday": 2,
+        "tuesday": 3,
+        "wednesday": 4,
+        "thursday": 5,
+        "friday": 6,
+        "saturday": 7,
+    }
 
     def __init__(self, event_store: Any = None, ek_module: Any = None) -> None:
         if ek_module is not None:
@@ -177,8 +194,11 @@ class EventKitService:
         location: str | None = None,
         url: str | None = None,
         notes: str | None = None,
-        recurrence: str | None = None,
+        recurrence: str | dict | None = None,
         calendar_id: str | None = None,
+        availability: str | None = None,
+        time_zone: str | None = None,
+        alarm_minutes_before: list[int] | None = None,
     ) -> Any:
         """Create a calendar event."""
         event = self._ek.EKEvent.eventWithEventStore_(self._store)
@@ -211,6 +231,15 @@ class EventKitService:
         if notes:
             event.setNotes_(notes)
 
+        if availability is not None:
+            event.setAvailability_(self._availability_value(availability))
+
+        if time_zone:
+            event.setTimeZone_(self._make_nstimezone(time_zone))
+
+        if alarm_minutes_before is not None:
+            event.setAlarms_(self._make_alarms(alarm_minutes_before) or None)
+
         if recurrence:
             rule = self._create_recurrence_rule(recurrence)
             event.addRecurrenceRule_(rule)
@@ -232,6 +261,11 @@ class EventKitService:
         location: str | None = None,
         url: str | None = None,
         notes: str | None = None,
+        availability: str | None = None,
+        time_zone: str | None = None,
+        alarm_minutes_before: list[int] | None = None,
+        recurrence: str | dict | None = None,
+        span: str = "this",
     ) -> Any:
         """Update an existing event. Only provided fields are changed."""
         event = self._find_event_by_id(event_id)
@@ -256,9 +290,24 @@ class EventKitService:
                 event.setURL_(None)
         if notes is not None:
             event.setNotes_(notes or None)
+        if availability is not None:
+            event.setAvailability_(self._availability_value(availability))
+        if time_zone is not None:
+            event.setTimeZone_(
+                self._make_nstimezone(time_zone) if time_zone else None
+            )
+        if alarm_minutes_before is not None:
+            event.setAlarms_(self._make_alarms(alarm_minutes_before) or None)
+        if recurrence is not None:
+            event.setRecurrenceRules_(
+                [self._create_recurrence_rule(recurrence)]
+                if recurrence
+                else None
+            )
 
+        span_value = self._span_value(span)
         success, error = self._store.saveEvent_span_commit_error_(
-            event, 0, True, None
+            event, span_value, True, None
         )
         if not success:
             raise RuntimeError(f"Failed to update event: {error}")
@@ -270,11 +319,7 @@ class EventKitService:
         if event is None:
             raise ValueError(f"Event '{event_id}' not found")
 
-        span_value = self._SPAN_MAP.get(span)
-        if span_value is None:
-            raise ValueError(
-                f"Invalid span '{span}'. Must be one of: this, future"
-            )
+        span_value = self._span_value(span)
 
         success, error = self._store.removeEvent_span_commit_error_(
             event, span_value, True, None
@@ -306,9 +351,45 @@ class EventKitService:
             raise RuntimeError(f"Failed to move event: {error}")
         return event
 
+    def _span_value(self, span: str) -> int:
+        """Map a span name to its EKSpan value."""
+        value = self._SPAN_MAP.get(span)
+        if value is None:
+            raise ValueError(
+                f"Invalid span '{span}'. Must be one of: this, future"
+            )
+        return value
+
     def _find_event_by_id(self, event_id: str) -> Any | None:
-        """Look up an event by its calendarItemIdentifier."""
-        return self._store.calendarItemWithIdentifier_(event_id)
+        """Look up an event, resolving a '<series-id>/<occurrence>' suffix.
+
+        Every occurrence of a recurring series shares one
+        calendarItemIdentifier, and the store returns the first occurrence for
+        it, so an occurrence has to be located through a date predicate.
+        """
+        series_id, separator, occurrence = event_id.partition("/")
+        event = self._store.calendarItemWithIdentifier_(series_id)
+        if not separator or event is None:
+            return event
+
+        target = datetime.fromisoformat(occurrence)
+        calendar = event.calendar()
+        predicate = self._store.predicateForEventsWithStartDate_endDate_calendars_(
+            self._datetime_to_nsdate(target - timedelta(days=1)),
+            self._datetime_to_nsdate(target + timedelta(days=1)),
+            [calendar] if calendar else None,
+        )
+        for candidate in self._store.eventsMatchingPredicate_(predicate) or []:
+            if candidate.calendarItemIdentifier() != series_id:
+                continue
+            candidate_date = candidate.occurrenceDate()
+            if candidate_date is None:
+                continue
+            delta = candidate_date.timeIntervalSince1970() - target.timestamp()
+            if abs(delta) < 1:
+                return candidate
+
+        raise ValueError(f"Occurrence '{event_id}' not found")
 
     def _datetime_to_nsdate(self, dt: datetime) -> Any:
         """Convert a Python datetime to NSDate."""
@@ -331,16 +412,97 @@ class EventKitService:
             raise ValueError(f"Invalid URL: {url_string}")
         return ns_url
 
-    def _create_recurrence_rule(self, recurrence: str) -> Any:
-        """Create an EKRecurrenceRule from a recurrence string."""
-        freq = self._RECURRENCE_MAP.get(recurrence.lower())
+    def _create_recurrence_rule(self, recurrence: str | dict) -> Any:
+        """Create an EKRecurrenceRule from a frequency string or a spec dict."""
+        spec = (
+            {"frequency": recurrence}
+            if isinstance(recurrence, str)
+            else recurrence
+        )
+
+        frequency = spec.get("frequency")
+        if not isinstance(frequency, str):
+            raise ValueError("Recurrence requires a 'frequency'")
+        freq = self._RECURRENCE_MAP.get(frequency.lower())
         if freq is None:
             raise ValueError(
-                f"Invalid recurrence '{recurrence}'. "
+                f"Invalid recurrence '{frequency}'. "
                 f"Must be one of: daily, weekly, monthly, yearly"
             )
-        rule = (
+
+        end_date = spec.get("end_date")
+        count = spec.get("count")
+        if end_date is not None and count is not None:
+            raise ValueError(
+                "Recurrence accepts 'end_date' or 'count', not both"
+            )
+        end = None
+        if end_date is not None:
+            end = self._ek.EKRecurrenceEnd.recurrenceEndWithEndDate_(
+                self._datetime_to_nsdate(datetime.fromisoformat(end_date))
+            )
+        elif count is not None:
+            end = self._ek.EKRecurrenceEnd.recurrenceEndWithOccurrenceCount_(
+                count
+            )
+
+        days_of_week = None
+        days = spec.get("days_of_week")
+        if days:
+            days_of_week = [
+                self._ek.EKRecurrenceDayOfWeek.dayOfWeek_(
+                    self._weekday_value(day)
+                )
+                for day in days
+            ]
+
+        return (
             self._ek.EKRecurrenceRule.alloc()
-            .initRecurrenceWithFrequency_interval_end_(freq, 1, None)
+            .initRecurrenceWithFrequency_interval_daysOfTheWeek_daysOfTheMonth_monthsOfTheYear_weeksOfTheYear_daysOfTheYear_setPositions_end_(
+                freq,
+                spec.get("interval", 1),
+                days_of_week,
+                None,
+                None,
+                None,
+                None,
+                None,
+                end,
+            )
         )
-        return rule
+
+    def _weekday_value(self, day: str) -> int:
+        """Map a weekday name to its EKWeekday value."""
+        value = self._WEEKDAY_MAP.get(day.lower())
+        if value is None:
+            raise ValueError(
+                f"Invalid weekday '{day}'. Must be one of: "
+                f"{', '.join(self._WEEKDAY_MAP)}"
+            )
+        return value
+
+    def _make_nstimezone(self, name: str) -> Any:
+        """Create an NSTimeZone from an IANA time zone name."""
+        import Foundation
+
+        time_zone = Foundation.NSTimeZone.timeZoneWithName_(name)
+        if time_zone is None:
+            raise ValueError(f"Invalid time zone: {name}")
+        return time_zone
+
+    def _availability_value(self, availability: str) -> int:
+        """Map an availability name to its EKEventAvailability value."""
+        value = self._AVAILABILITY_MAP.get(availability.lower())
+        if value is None:
+            raise ValueError(
+                f"Invalid availability '{availability}'. Must be one of: "
+                f"{', '.join(self._AVAILABILITY_MAP)}"
+            )
+        return value
+
+    def _make_alarms(self, minutes_before: list[int]) -> list[Any]:
+        """Create EKAlarms firing the given number of minutes before an event."""
+        return [
+            self._ek.EKAlarm.alarmWithRelativeOffset_(-minutes * 60)
+            for minutes in minutes_before
+        ]

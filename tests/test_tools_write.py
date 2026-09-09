@@ -233,6 +233,11 @@ class TestUpdateEvent:
             location=None,
             url=None,
             notes=None,
+            availability=None,
+            time_zone=None,
+            alarm_minutes_before=None,
+            recurrence=None,
+            span="this",
         )
 
     def test_update_dates(self, mock_service):
@@ -460,3 +465,67 @@ class TestQuickAdd:
         assert result["notes"] == "Some details"
         call_kwargs = mock_service.create_event.call_args.kwargs
         assert call_kwargs["notes"] == "Some details"
+
+
+# ---------------------------------------------------------------------------
+# Tests: new write parameters at the tool layer
+# ---------------------------------------------------------------------------
+
+
+class TestCreateEventNewParameters:
+    def test_forwards_availability_time_zone_and_alarms(self, mock_service):
+        mock_service.create_event.return_value = MockEvent(identifier="evt-1")
+
+        create_event(
+            "Focus",
+            "2026-03-15T10:00:00",
+            availability="free",
+            time_zone="Europe/Berlin",
+            alarm_minutes_before=[10, 60],
+        )
+
+        call_kwargs = mock_service.create_event.call_args.kwargs
+        assert call_kwargs["availability"] == "free"
+        assert call_kwargs["time_zone"] == "Europe/Berlin"
+        assert call_kwargs["alarm_minutes_before"] == [10, 60]
+
+    def test_forwards_recurrence_string(self, mock_service):
+        mock_service.create_event.return_value = MockEvent(identifier="evt-1")
+
+        create_event("Standup", "2026-03-15T10:00:00", recurrence="weekly")
+
+        assert mock_service.create_event.call_args.kwargs["recurrence"] == "weekly"
+
+    def test_forwards_recurrence_object(self, mock_service):
+        mock_service.create_event.return_value = MockEvent(identifier="evt-1")
+        spec = {
+            "frequency": "weekly",
+            "interval": 2,
+            "days_of_week": ["monday", "thursday"],
+            "count": 10,
+        }
+
+        create_event("Standup", "2026-03-15T10:00:00", recurrence=spec)
+
+        assert mock_service.create_event.call_args.kwargs["recurrence"] == spec
+
+
+class TestUpdateEventNewParameters:
+    def test_forwards_new_fields_and_span(self, mock_service):
+        mock_service.update_event.return_value = MockEvent(identifier="evt-1")
+
+        update_event(
+            "evt-1",
+            availability="busy",
+            time_zone="UTC",
+            alarm_minutes_before=[],
+            recurrence="",
+            span="future",
+        )
+
+        call_kwargs = mock_service.update_event.call_args.kwargs
+        assert call_kwargs["availability"] == "busy"
+        assert call_kwargs["time_zone"] == "UTC"
+        assert call_kwargs["alarm_minutes_before"] == []
+        assert call_kwargs["recurrence"] == ""
+        assert call_kwargs["span"] == "future"
