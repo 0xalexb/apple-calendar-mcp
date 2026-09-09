@@ -377,7 +377,7 @@ class TestCreateEvent:
         mock_evt = MockEvent()
         ek.EKEvent.eventWithEventStore_.return_value = mock_evt
         mock_rule = MagicMock()
-        ek.EKRecurrenceRule.alloc().initRecurrenceWithFrequency_interval_end_.return_value = mock_rule
+        _rule_builder(ek).return_value = mock_rule
         store = make_store()
         svc = EventKitService(event_store=store, ek_module=ek)
 
@@ -767,6 +767,13 @@ class TestFindEventById:
 # ---------------------------------------------------------------------------
 
 
+def _rule_builder(ek):
+    """The full EKRecurrenceRule initializer on a mock EventKit module."""
+    return (
+        ek.EKRecurrenceRule.alloc().initRecurrenceWithFrequency_interval_daysOfTheWeek_daysOfTheMonth_monthsOfTheYear_weeksOfTheYear_daysOfTheYear_setPositions_end_
+    )
+
+
 class TestCreateRecurrenceRule:
     @pytest.mark.parametrize(
         "recurrence,freq",
@@ -782,14 +789,15 @@ class TestCreateRecurrenceRule:
     def test_valid_recurrence(self, recurrence, freq):
         ek = make_ek_module()
         mock_rule = MagicMock()
-        ek.EKRecurrenceRule.alloc().initRecurrenceWithFrequency_interval_end_.return_value = mock_rule
+        builder = _rule_builder(ek)
+        builder.return_value = mock_rule
         svc = EventKitService(event_store=make_store(), ek_module=ek)
 
         result = svc._create_recurrence_rule(recurrence)
 
         assert result is mock_rule
-        ek.EKRecurrenceRule.alloc().initRecurrenceWithFrequency_interval_end_.assert_called_with(
-            freq, 1, None
+        builder.assert_called_with(
+            freq, 1, None, None, None, None, None, None, None
         )
 
     def test_invalid_recurrence_raises(self):
@@ -884,3 +892,322 @@ class TestMakeNsurl:
         with patch.dict("sys.modules", {"Foundation": mock_foundation}):
             with pytest.raises(ValueError, match="Invalid URL"):
                 svc._make_nsurl("not a valid url")
+
+
+# ---------------------------------------------------------------------------
+# Tests: availability, time zone, and alarms
+# ---------------------------------------------------------------------------
+
+
+def _service_with_event(event, store=None):
+    """Build a service whose EKEvent factory returns the given mock event."""
+    ek = make_ek_module()
+    ek.EKEvent.eventWithEventStore_.return_value = event
+    store = store or make_store()
+    return EventKitService(event_store=store, ek_module=ek), store, ek
+
+
+class TestAvailability:
+    @pytest.mark.parametrize(
+        "name,value",
+        [("busy", 0), ("free", 1), ("tentative", 2), ("unavailable", 3)],
+    )
+    def test_create_sets_availability(self, name, value):
+        event = MockEvent()
+        svc, _, _ = _service_with_event(event)
+
+        with patch.dict("sys.modules", {"Foundation": MagicMock()}):
+            svc.create_event(
+                "Focus",
+                start_date=datetime(2026, 3, 15, 9, 0),
+                end_date=datetime(2026, 3, 15, 10, 0),
+                availability=name,
+            )
+
+        assert event.availability() == value
+
+    def test_invalid_availability_raises(self):
+        event = MockEvent()
+        svc, _, _ = _service_with_event(event)
+
+        with patch.dict("sys.modules", {"Foundation": MagicMock()}):
+            with pytest.raises(ValueError, match="Invalid availability"):
+                svc.create_event(
+                    "Focus",
+                    start_date=datetime(2026, 3, 15, 9, 0),
+                    end_date=datetime(2026, 3, 15, 10, 0),
+                    availability="maybe",
+                )
+
+
+class TestTimeZone:
+    def test_create_sets_time_zone(self):
+        event = MockEvent()
+        svc, _, _ = _service_with_event(event)
+
+        foundation = MagicMock()
+        zone = MagicMock()
+        foundation.NSTimeZone.timeZoneWithName_.return_value = zone
+        with patch.dict("sys.modules", {"Foundation": foundation}):
+            svc.create_event(
+                "Call",
+                start_date=datetime(2026, 3, 15, 9, 0),
+                end_date=datetime(2026, 3, 15, 10, 0),
+                time_zone="Europe/Berlin",
+            )
+
+        foundation.NSTimeZone.timeZoneWithName_.assert_called_with(
+            "Europe/Berlin"
+        )
+        assert event.timeZone() is zone
+
+    def test_invalid_time_zone_raises(self):
+        event = MockEvent()
+        svc, _, _ = _service_with_event(event)
+
+        foundation = MagicMock()
+        foundation.NSTimeZone.timeZoneWithName_.return_value = None
+        with patch.dict("sys.modules", {"Foundation": foundation}):
+            with pytest.raises(ValueError, match="Invalid time zone"):
+                svc.create_event(
+                    "Call",
+                    start_date=datetime(2026, 3, 15, 9, 0),
+                    end_date=datetime(2026, 3, 15, 10, 0),
+                    time_zone="Mars/Olympus",
+                )
+
+
+class TestAlarms:
+    def test_minutes_converted_to_negative_seconds(self):
+        event = MockEvent()
+        svc, _, ek = _service_with_event(event)
+
+        with patch.dict("sys.modules", {"Foundation": MagicMock()}):
+            svc.create_event(
+                "Standup",
+                start_date=datetime(2026, 3, 15, 9, 0),
+                end_date=datetime(2026, 3, 15, 9, 15),
+                alarm_minutes_before=[10, 60],
+            )
+
+        calls = ek.EKAlarm.alarmWithRelativeOffset_.call_args_list
+        assert [call.args[0] for call in calls] == [-600, -3600]
+        assert len(event.alarms()) == 2
+
+    def test_empty_list_clears_alarms(self):
+        event = MockEvent(alarms=[object()])
+        store = make_store()
+        store.calendarItemWithIdentifier_.return_value = event
+        svc, _, _ = _service_with_event(MockEvent(), store=store)
+
+        with patch.dict("sys.modules", {"Foundation": MagicMock()}):
+            svc.update_event("evt-1", alarm_minutes_before=[])
+
+        assert event.alarms() is None
+
+
+# ---------------------------------------------------------------------------
+# Tests: structured recurrence
+# ---------------------------------------------------------------------------
+
+
+class TestStructuredRecurrence:
+    def test_string_and_dict_are_equivalent(self):
+        ek = make_ek_module()
+        svc = EventKitService(event_store=make_store(), ek_module=ek)
+
+        svc._create_recurrence_rule("weekly")
+        from_string = _rule_builder(ek).call_args
+        svc._create_recurrence_rule({"frequency": "weekly"})
+        from_dict = _rule_builder(ek).call_args
+
+        assert from_string == from_dict
+
+    def test_interval(self):
+        ek = make_ek_module()
+        svc = EventKitService(event_store=make_store(), ek_module=ek)
+
+        svc._create_recurrence_rule({"frequency": "weekly", "interval": 3})
+
+        assert _rule_builder(ek).call_args.args[1] == 3
+
+    def test_days_of_week(self):
+        ek = make_ek_module()
+        svc = EventKitService(event_store=make_store(), ek_module=ek)
+
+        svc._create_recurrence_rule(
+            {"frequency": "weekly", "days_of_week": ["monday", "thursday"]}
+        )
+
+        calls = ek.EKRecurrenceDayOfWeek.dayOfWeek_.call_args_list
+        assert [call.args[0] for call in calls] == [2, 5]
+        assert _rule_builder(ek).call_args.args[2] is not None
+
+    def test_invalid_weekday_raises(self):
+        svc, _, _ = _make_service()
+        with pytest.raises(ValueError, match="Invalid weekday"):
+            svc._create_recurrence_rule(
+                {"frequency": "weekly", "days_of_week": ["moonday"]}
+            )
+
+    def test_end_date(self):
+        ek = make_ek_module()
+        svc = EventKitService(event_store=make_store(), ek_module=ek)
+        end = MagicMock()
+        ek.EKRecurrenceEnd.recurrenceEndWithEndDate_.return_value = end
+
+        with patch.dict("sys.modules", {"Foundation": MagicMock()}):
+            svc._create_recurrence_rule(
+                {"frequency": "daily", "end_date": "2026-12-31"}
+            )
+
+        assert _rule_builder(ek).call_args.args[8] is end
+
+    def test_count(self):
+        ek = make_ek_module()
+        svc = EventKitService(event_store=make_store(), ek_module=ek)
+        end = MagicMock()
+        ek.EKRecurrenceEnd.recurrenceEndWithOccurrenceCount_.return_value = end
+
+        svc._create_recurrence_rule({"frequency": "daily", "count": 10})
+
+        ek.EKRecurrenceEnd.recurrenceEndWithOccurrenceCount_.assert_called_with(
+            10
+        )
+        assert _rule_builder(ek).call_args.args[8] is end
+
+    def test_end_date_and_count_together_raise(self):
+        svc, _, _ = _make_service()
+        with pytest.raises(ValueError, match="not both"):
+            svc._create_recurrence_rule(
+                {"frequency": "daily", "end_date": "2026-12-31", "count": 10}
+            )
+
+    def test_missing_frequency_raises(self):
+        svc, _, _ = _make_service()
+        with pytest.raises(ValueError, match="requires a 'frequency'"):
+            svc._create_recurrence_rule({"interval": 2})
+
+    def test_update_clears_recurrence(self):
+        event = MockEvent(recurrence_rules=[object()])
+        store = make_store()
+        store.calendarItemWithIdentifier_.return_value = event
+        svc, _, _ = _service_with_event(MockEvent(), store=store)
+
+        with patch.dict("sys.modules", {"Foundation": MagicMock()}):
+            svc.update_event("evt-1", recurrence="")
+
+        assert event.recurrenceRules() == []
+
+
+# ---------------------------------------------------------------------------
+# Tests: update_event span
+# ---------------------------------------------------------------------------
+
+
+class TestUpdateEventSpan:
+    @pytest.mark.parametrize("span,value", [("this", 0), ("future", 1)])
+    def test_span_reaches_store(self, span, value):
+        event = MockEvent()
+        store = make_store()
+        store.calendarItemWithIdentifier_.return_value = event
+        svc, _, _ = _service_with_event(MockEvent(), store=store)
+
+        with patch.dict("sys.modules", {"Foundation": MagicMock()}):
+            svc.update_event("evt-1", title="Renamed", span=span)
+
+        assert store.saveEvent_span_commit_error_.call_args.args[1] == value
+
+    def test_default_span_is_this_event(self):
+        event = MockEvent()
+        store = make_store()
+        store.calendarItemWithIdentifier_.return_value = event
+        svc, _, _ = _service_with_event(MockEvent(), store=store)
+
+        with patch.dict("sys.modules", {"Foundation": MagicMock()}):
+            svc.update_event("evt-1", title="Renamed")
+
+        assert store.saveEvent_span_commit_error_.call_args.args[1] == 0
+
+    def test_invalid_span_raises(self):
+        event = MockEvent()
+        store = make_store()
+        store.calendarItemWithIdentifier_.return_value = event
+        svc, _, _ = _service_with_event(MockEvent(), store=store)
+
+        with patch.dict("sys.modules", {"Foundation": MagicMock()}):
+            with pytest.raises(ValueError, match="Invalid span"):
+                svc.update_event("evt-1", title="Renamed", span="all")
+
+
+# ---------------------------------------------------------------------------
+# Tests: occurrence lookup
+# ---------------------------------------------------------------------------
+
+
+class TestFindEventById:
+    def test_bare_identifier_uses_store_lookup(self):
+        event = MockEvent(identifier="evt-1")
+        store = make_store()
+        store.calendarItemWithIdentifier_.return_value = event
+        svc, _, _ = _service_with_event(MockEvent(), store=store)
+
+        assert svc._find_event_by_id("evt-1") is event
+        store.calendarItemWithIdentifier_.assert_called_with("evt-1")
+
+    def test_missing_identifier_returns_none(self):
+        store = make_store()
+        store.calendarItemWithIdentifier_.return_value = None
+        svc, _, _ = _service_with_event(MockEvent(), store=store)
+
+        assert svc._find_event_by_id("nope") is None
+
+    def test_composite_id_selects_the_matching_occurrence(self):
+        cal = MockCalendar("Work", "cal-w")
+        target = datetime(2026, 3, 15, 9, 0)
+        first = MockEvent(
+            identifier="evt-r",
+            calendar=cal,
+            occurrence_date=MockNSDate(
+                datetime(2026, 3, 1, 9, 0).timestamp()
+            ),
+            has_recurrence=True,
+        )
+        wanted = MockEvent(
+            identifier="evt-r",
+            calendar=cal,
+            occurrence_date=MockNSDate(target.timestamp()),
+            has_recurrence=True,
+        )
+        other_series = MockEvent(
+            identifier="evt-x",
+            calendar=cal,
+            occurrence_date=MockNSDate(target.timestamp()),
+        )
+        store = make_store(events=[first, other_series, wanted])
+        store.calendarItemWithIdentifier_.return_value = first
+        svc, _, _ = _service_with_event(MockEvent(), store=store)
+
+        with patch.dict("sys.modules", {"Foundation": MagicMock()}):
+            result = svc._find_event_by_id(f"evt-r/{target.isoformat()}")
+
+        assert result is wanted
+        assert result is not first
+
+    def test_unmatched_occurrence_raises(self):
+        cal = MockCalendar("Work", "cal-w")
+        series = MockEvent(
+            identifier="evt-r",
+            calendar=cal,
+            occurrence_date=MockNSDate(
+                datetime(2026, 3, 1, 9, 0).timestamp()
+            ),
+            has_recurrence=True,
+        )
+        store = make_store(events=[series])
+        store.calendarItemWithIdentifier_.return_value = series
+        svc, _, _ = _service_with_event(MockEvent(), store=store)
+
+        with patch.dict("sys.modules", {"Foundation": MagicMock()}):
+            with pytest.raises(ValueError, match="Occurrence .* not found"):
+                svc._find_event_by_id("evt-r/2026-03-15T09:00:00")

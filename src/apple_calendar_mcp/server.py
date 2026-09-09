@@ -360,9 +360,12 @@ def create_event(
     location: str | None = None,
     url: str | None = None,
     notes: str | None = None,
-    recurrence: str | None = None,
+    recurrence: str | dict | None = None,
+    availability: str | None = None,
+    time_zone: str | None = None,
+    alarm_minutes_before: list[int] | None = None,
 ) -> dict:
-    """Creates a calendar event. start_date in ISO 8601 format. If end_date is omitted, defaults to start + 1 hour (or +1 day if all-day). Optional: calendar_name or calendar_id (preferred, avoids ambiguity), is_all_day, location, url, notes, recurrence (daily/weekly/monthly/yearly)."""
+    """Creates a calendar event. start_date in ISO 8601 format. If end_date is omitted, defaults to start + 1 hour (or +1 day if all-day). Optional: calendar_name or calendar_id (preferred, avoids ambiguity), is_all_day, location, url, notes, availability (busy/free/tentative/unavailable), time_zone (IANA name, e.g. Europe/Berlin), alarm_minutes_before (e.g. [10, 60] for reminders 10 and 60 minutes ahead). recurrence is either a frequency string (daily/weekly/monthly/yearly) or an object {"frequency": required, "interval": every N periods, "days_of_week": ["monday", ...], "end_date": ISO date, "count": number of occurrences} — end_date and count are mutually exclusive."""
     service = _get_service()
     start = datetime.fromisoformat(start_date)
     if end_date:
@@ -382,6 +385,9 @@ def create_event(
         url=url,
         notes=notes,
         recurrence=recurrence,
+        availability=availability,
+        time_zone=time_zone,
+        alarm_minutes_before=alarm_minutes_before,
     )
     return _format_event(event)
 
@@ -396,8 +402,13 @@ def update_event(
     location: str | None = None,
     url: str | None = None,
     notes: str | None = None,
+    availability: str | None = None,
+    time_zone: str | None = None,
+    alarm_minutes_before: list[int] | None = None,
+    recurrence: str | dict | None = None,
+    span: str = "this",
 ) -> dict:
-    """Updates an existing event. Only provided fields are changed. Dates in ISO 8601 format."""
+    """Updates an existing event. Only provided fields are changed. Dates in ISO 8601 format. availability is busy/free/tentative/unavailable, time_zone an IANA name, alarm_minutes_before a list like [10, 60] ([] clears alarms). recurrence takes a frequency string or the object described by create_event ("" clears it). For recurring events, span='this' (default) changes only this occurrence, span='future' changes this and all future ones."""
     service = _get_service()
     parsed_start = datetime.fromisoformat(start_date) if start_date else None
     parsed_end = datetime.fromisoformat(end_date) if end_date else None
@@ -410,6 +421,11 @@ def update_event(
         location=location,
         url=url,
         notes=notes,
+        availability=availability,
+        time_zone=time_zone,
+        alarm_minutes_before=alarm_minutes_before,
+        recurrence=recurrence,
+        span=span,
     )
     return _format_event(event)
 
