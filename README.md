@@ -59,6 +59,11 @@ holds the bare identifier if you want to address the whole series instead.
 Only `frequency` is required. `end_date` and `count` are mutually exclusive. In `update_event`,
 `recurrence: ""` removes the recurrence rules and `alarm_minutes_before: []` removes the alarms.
 
+The object takes exactly `frequency`, `interval`, `end_date`, `count` and `days_of_week`. Any other
+key is an error that names it, and `{}` is an error: only `""` clears. That includes the `end`,
+`days_of_month`, `months_of_year` and `week_positions` that `recurrence_rules` prints on read, so
+the read shape does not round-trip. `create_event` with `recurrence: ""` makes a non-recurring event.
+
 `status` and `attendees` are read-only — EventKit exposes no public API to set them.
 
 ## apple-calendar CLI
@@ -85,7 +90,10 @@ are not accepted (`--start` is an error, not `--start-date`).
 - A boolean is `--is-all-day` or `--no-is-all-day`. On `update`, leaving both out leaves the field unchanged.
 - `--alarm-minutes-before` takes one JSON list of integers: `[10,60]` sets alarms, `[]` clears them on `update`.
 - `--recurrence` takes a frequency string, or one JSON object when the value starts with `{`.
-  `""` clears the recurrence on `update`.
+  The object takes only `frequency`, `interval`, `end_date`, `count` and `days_of_week`; any other
+  key (`end`, `days_of_month`, `months_of_year` and `week_positions` included) is bad input, exit `1`.
+  `{}` is an error too: only `""` clears the recurrence, on `update`. `create --recurrence ""`
+  makes a non-recurring event.
 - No flag reads a file.
 - Stdout is never empty on exit `0`: a list verb prints `[]` and `all-events` prints `{}` when there is nothing.
 

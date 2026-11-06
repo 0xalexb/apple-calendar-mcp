@@ -89,7 +89,7 @@ def create_event(
     time_zone: str | None = None,
     alarm_minutes_before: list[int] | None = None,
 ) -> dict:
-    """Creates a calendar event. start_date in ISO 8601 format. If end_date is omitted, defaults to start + 1 hour (or +1 day if all-day). Optional: calendar_name or calendar_id (preferred, avoids ambiguity), is_all_day, location, url, notes, availability (busy/free/tentative/unavailable), time_zone (IANA name, e.g. Europe/Berlin), alarm_minutes_before (e.g. [10, 60] for reminders 10 and 60 minutes ahead). recurrence is either a frequency string (daily/weekly/monthly/yearly) or an object {"frequency": required, "interval": every N periods, "days_of_week": ["monday", ...], "end_date": ISO date, "count": number of occurrences} — end_date and count are mutually exclusive."""
+    """Creates a calendar event. start_date in ISO 8601 format. If end_date is omitted, defaults to start + 1 hour (or +1 day if all-day). Optional: calendar_name or calendar_id (preferred, avoids ambiguity), is_all_day, location, url, notes, availability (busy/free/tentative/unavailable), time_zone (IANA name, e.g. Europe/Berlin), alarm_minutes_before (e.g. [10, 60] for reminders 10 and 60 minutes ahead). recurrence is either a frequency string (daily/weekly/monthly/yearly) or an object {"frequency": required, "interval": every N periods, "days_of_week": ["monday", ...], "end_date": ISO date, "count": number of occurrences} — end_date and count are mutually exclusive. Those five keys are the only ones accepted: any other key is an error, including the end, days_of_month, months_of_year and week_positions that get_events prints in recurrence_rules, so that read shape does not round-trip. {} is an error. Omit recurrence, or pass "", for a non-recurring event."""
     return operations.create_event(
         _get_service(),
         title=title,
@@ -124,7 +124,7 @@ def update_event(
     recurrence: str | dict | None = None,
     span: str = "this",
 ) -> dict:
-    """Updates an existing event. Only provided fields are changed. Dates in ISO 8601 format. availability is busy/free/tentative/unavailable, time_zone an IANA name, alarm_minutes_before a list like [10, 60] ([] clears alarms). recurrence takes a frequency string or the object described by create_event ("" clears it). For recurring events, span='this' (default) changes only this occurrence, span='future' changes this and all future ones."""
+    """Updates an existing event. Only provided fields are changed. Dates in ISO 8601 format. availability is busy/free/tentative/unavailable, time_zone an IANA name, alarm_minutes_before a list like [10, 60] ([] clears alarms). recurrence takes a frequency string or the object described by create_event, with the same rules: an unknown key is an error, {} is an error, and only "" clears the recurrence. For recurring events, span='this' (default) changes only this occurrence, span='future' changes this and all future ones."""
     return operations.update_event(
         _get_service(),
         event_id=event_id,
