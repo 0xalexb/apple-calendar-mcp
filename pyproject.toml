@@ -1,6 +1,6 @@
 [project]
 name = "apple-calendar-mcp"
-version = "0.1.0"
+version = "1.2.0"
 description = "MCP server for Apple Calendar via EventKit"
 readme = "README.md"
 license = { text = "MIT" }
@@ -12,6 +12,7 @@ dependencies = [
 
 [project.scripts]
 apple-calendar-mcp = "apple_calendar_mcp.server:main"
+apple-calendar = "apple_calendar_mcp.cli:main"
 
 [build-system]
 requires = ["hatchling"]

@@ -6,10 +6,13 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from apple_calendar_mcp.eventkit_service import EventKitService
+from apple_calendar_mcp.formatting import _format_recurrence_rule
 from tests.conftest import (
     MockCalendar,
     MockEvent,
     MockNSDate,
+    MockRecurrenceEnd,
+    MockRecurrenceRule,
     make_ek_module,
     make_store,
 )
@@ -1098,6 +1101,136 @@ class TestStructuredRecurrence:
             svc.update_event("evt-1", recurrence="")
 
         assert event.recurrenceRules() == []
+
+
+class TestRecurrenceRejected:
+    def test_empty_object_requires_frequency(self):
+        svc, _, _ = _make_service()
+        with pytest.raises(ValueError, match="requires a 'frequency'"):
+            svc._create_recurrence_rule({})
+
+    @pytest.mark.parametrize(
+        "key,value",
+        [
+            ("end", {"date": "2026-12-31T00:00:00"}),
+            ("days_of_month", [1]),
+            ("months_of_year", [3]),
+            ("week_positions", [1]),
+            ("until", "2026-12-31"),
+        ],
+    )
+    def test_unknown_key_is_named(self, key, value):
+        ek = make_ek_module()
+        svc = EventKitService(event_store=make_store(), ek_module=ek)
+
+        with pytest.raises(ValueError, match=f"Unknown recurrence key '{key}'"):
+            svc._create_recurrence_rule({"frequency": "weekly", key: value})
+
+        _rule_builder(ek).assert_not_called()
+
+    def test_several_unknown_keys_are_all_named_sorted(self):
+        svc, _, _ = _make_service()
+        with pytest.raises(
+            ValueError, match="Unknown recurrence keys 'a', 'b'. Allowed: frequency"
+        ):
+            svc._create_recurrence_rule({"frequency": "daily", "b": 1, "a": 2})
+
+    def test_read_shape_does_not_round_trip(self):
+        rule = MockRecurrenceRule(
+            frequency=1,
+            recurrence_end=MockRecurrenceEnd(end_date=MockNSDate(1798675200.0)),
+        )
+        shape = _format_recurrence_rule(rule)
+        svc, _, _ = _make_service()
+
+        with pytest.raises(ValueError, match="'end'"):
+            svc._create_recurrence_rule(shape)
+
+    def test_all_accepted_keys_build_a_rule(self):
+        ek = make_ek_module()
+        svc = EventKitService(event_store=make_store(), ek_module=ek)
+
+        with patch.dict("sys.modules", {"Foundation": MagicMock()}):
+            svc._create_recurrence_rule(
+                {
+                    "frequency": "weekly",
+                    "interval": 2,
+                    "end_date": "2026-12-31",
+                    "days_of_week": ["monday"],
+                }
+            )
+            svc._create_recurrence_rule({"frequency": "weekly", "count": 3})
+
+        assert _rule_builder(ek).call_count == 2
+
+    def test_update_with_empty_object_changes_nothing(self):
+        event = MockEvent(title="Old", recurrence_rules=[object()])
+        store = make_store()
+        store.calendarItemWithIdentifier_.return_value = event
+        svc, _, _ = _service_with_event(MockEvent(), store=store)
+
+        with patch.dict("sys.modules", {"Foundation": MagicMock()}):
+            with pytest.raises(ValueError, match="requires a 'frequency'"):
+                svc.update_event("evt-1", title="New", recurrence={})
+
+        assert len(event.recurrenceRules()) == 1
+        assert event.title() == "Old"
+        store.saveEvent_span_commit_error_.assert_not_called()
+
+    def test_update_with_unknown_key_changes_nothing(self):
+        event = MockEvent(title="Old")
+        store = make_store()
+        store.calendarItemWithIdentifier_.return_value = event
+        svc, _, _ = _service_with_event(MockEvent(), store=store)
+
+        with patch.dict("sys.modules", {"Foundation": MagicMock()}):
+            with pytest.raises(ValueError, match="'days_of_month'"):
+                svc.update_event(
+                    "evt-1",
+                    title="New",
+                    recurrence={"frequency": "daily", "days_of_month": [1]},
+                )
+
+        assert event.title() == "Old"
+        store.saveEvent_span_commit_error_.assert_not_called()
+
+    def test_update_missing_event_keeps_its_error(self):
+        store = make_store()
+        store.calendarItemWithIdentifier_.return_value = None
+        svc, _, _ = _service_with_event(MockEvent(), store=store)
+
+        with pytest.raises(ValueError, match="not found"):
+            svc.update_event("nope", recurrence={})
+
+    def test_create_with_empty_object_does_not_save(self):
+        mock_evt = MockEvent()
+        svc, store, _ = _service_with_event(mock_evt)
+
+        with patch.dict("sys.modules", {"Foundation": MagicMock()}):
+            with pytest.raises(ValueError, match="requires a 'frequency'"):
+                svc.create_event(
+                    "Standup",
+                    start_date=datetime(2026, 3, 15, 9, 0),
+                    end_date=datetime(2026, 3, 15, 9, 15),
+                    recurrence={},
+                )
+
+        store.saveEvent_span_commit_error_.assert_not_called()
+
+    def test_create_with_empty_string_saves_a_non_recurring_event(self):
+        mock_evt = MockEvent()
+        svc, store, _ = _service_with_event(mock_evt)
+
+        with patch.dict("sys.modules", {"Foundation": MagicMock()}):
+            svc.create_event(
+                "Standup",
+                start_date=datetime(2026, 3, 15, 9, 0),
+                end_date=datetime(2026, 3, 15, 9, 15),
+                recurrence="",
+            )
+
+        assert mock_evt.recurrenceRules() == []
+        store.saveEvent_span_commit_error_.assert_called_once()
 
 
 # ---------------------------------------------------------------------------

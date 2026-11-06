@@ -247,19 +247,11 @@ class MockRecurrenceRule:
         return self._recurrence_end
 
 
-class MockCoordinate:
-    """Simulates a CLLocationCoordinate2D struct."""
-
-    def __init__(self, latitude: float, longitude: float):
-        self.latitude = latitude
-        self.longitude = longitude
-
-
 class MockGeoLocation:
-    """Simulates a CLLocation object."""
+    """Simulates a CLLocation object; coordinate() returns a plain tuple like pyobjc."""
 
     def __init__(self, latitude: float, longitude: float):
-        self._coordinate = MockCoordinate(latitude, longitude)
+        self._coordinate = (latitude, longitude)
 
     def coordinate(self):
         return self._coordinate

@@ -5,13 +5,16 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from apple_calendar_mcp.server import (
+from apple_calendar_mcp.formatting import (
     _format_alarm,
     _format_calendar,
     _format_event,
+    _format_geo,
     _format_nsdate,
     _format_participant,
     _format_recurrence_rule,
+)
+from apple_calendar_mcp.server import (
     get_all_events,
     get_events,
     list_calendars,
@@ -680,3 +683,20 @@ class TestFormatEventNewFields:
             structured_location=MockStructuredLocation(title="Somewhere")
         )
         assert "geo" not in _format_event(event)
+
+    def test_geo_unpacks_a_plain_tuple(self):
+        location = MockStructuredLocation(
+            title="HQ", geo_location=MockGeoLocation(52.5, 13.4), radius=50.0
+        )
+        assert _format_geo(location) == {
+            "title": "HQ",
+            "latitude": 52.5,
+            "longitude": 13.4,
+            "radius": 50.0,
+        }
+
+    def test_geo_without_radius_omits_it(self):
+        location = MockStructuredLocation(
+            title="HQ", geo_location=MockGeoLocation(52.5, 13.4), radius=0
+        )
+        assert "radius" not in _format_geo(location)
