@@ -13,6 +13,7 @@ from tests.conftest import (
     MockNSDate,
     MockRecurrenceEnd,
     MockRecurrenceRule,
+    MockReminder,
     make_ek_module,
     make_store,
 )
@@ -546,16 +547,51 @@ class TestUpdateEvent:
         with pytest.raises(RuntimeError, match="Failed to update event"):
             svc.update_event("evt-42", title="New")
 
-    def test_no_changes(self):
+    def test_no_changes_raises_and_writes_nothing(self):
         mock_evt = MockEvent("Meeting", "evt-42")
         store = make_store()
         store.calendarItemWithIdentifier_.return_value = mock_evt
         svc, _, _ = _make_service(store=store)
 
-        result = svc.update_event("evt-42")
+        with pytest.raises(ValueError, match="Nothing to update"):
+            svc.update_event("evt-42")
 
-        assert result is mock_evt
+        store.saveEvent_span_commit_error_.assert_not_called()
         assert mock_evt.title() == "Meeting"
+
+    def test_span_alone_is_not_a_field(self):
+        store = make_store()
+        store.calendarItemWithIdentifier_.return_value = MockEvent(
+            "Meeting", "evt-42"
+        )
+        svc, _, _ = _make_service(store=store)
+
+        with pytest.raises(ValueError, match="Nothing to update"):
+            svc.update_event("evt-42", span="future")
+
+        store.saveEvent_span_commit_error_.assert_not_called()
+
+    def test_empty_alarm_list_counts_as_a_field(self):
+        store = make_store()
+        store.calendarItemWithIdentifier_.return_value = MockEvent(
+            "Meeting", "evt-42"
+        )
+        svc, _, _ = _make_service(store=store)
+
+        svc.update_event("evt-42", alarm_minutes_before=[])
+
+        store.saveEvent_span_commit_error_.assert_called_once()
+
+    def test_empty_recurrence_counts_as_a_field(self):
+        store = make_store()
+        store.calendarItemWithIdentifier_.return_value = MockEvent(
+            "Meeting", "evt-42"
+        )
+        svc, _, _ = _make_service(store=store)
+
+        svc.update_event("evt-42", recurrence="")
+
+        store.saveEvent_span_commit_error_.assert_called_once()
 
     def test_update_url(self):
         mock_evt = MockEvent("Meeting", "evt-42")
@@ -1046,6 +1082,62 @@ class TestStructuredRecurrence:
         assert [call.args[0] for call in calls] == [2, 5]
         assert _rule_builder(ek).call_args.args[2] is not None
 
+    def test_empty_days_of_week_builds_a_rule_with_none(self):
+        ek = make_ek_module()
+        svc = EventKitService(event_store=make_store(), ek_module=ek)
+
+        svc._create_recurrence_rule({"frequency": "weekly", "days_of_week": []})
+
+        assert _rule_builder(ek).call_args.args[2] is None
+
+    @pytest.mark.parametrize(
+        "spec,named",
+        [
+            ({"frequency": "daily", "end_date": 5}, "end_date"),
+            ({"frequency": "daily", "end_date": ""}, None),
+            ({"frequency": "daily", "interval": "2"}, "interval"),
+            ({"frequency": "daily", "interval": 0}, "interval"),
+            ({"frequency": "daily", "interval": -1}, "interval"),
+            ({"frequency": "daily", "interval": True}, "interval"),
+            ({"frequency": "daily", "interval": None}, "interval"),
+            ({"frequency": "daily", "count": "3"}, "count"),
+            ({"frequency": "daily", "count": 0}, "count"),
+            ({"frequency": "daily", "count": True}, "count"),
+            ({"frequency": "weekly", "days_of_week": "monday"}, "days_of_week"),
+            ({"frequency": "weekly", "days_of_week": [1]}, "days_of_week"),
+            ({"frequency": "weekly", "days_of_week": ""}, "days_of_week"),
+            ({"frequency": "weekly", "days_of_week": 0}, "days_of_week"),
+            ({"frequency": "weekly", "days_of_week": {}}, "days_of_week"),
+            ({"frequency": "weekly", "days_of_week": None}, "days_of_week"),
+        ],
+    )
+    def test_wrong_value_raises_before_building(self, spec, named):
+        ek = make_ek_module()
+        svc = EventKitService(event_store=make_store(), ek_module=ek)
+
+        with patch.dict("sys.modules", {"Foundation": MagicMock()}):
+            with pytest.raises(ValueError) as exc:
+                svc._create_recurrence_rule(spec)
+
+        if named:
+            assert f"'{named}'" in str(exc.value)
+        _rule_builder(ek).assert_not_called()
+
+    @pytest.mark.parametrize(
+        "spec",
+        [
+            {"frequency": "daily", "count": None},
+            {"frequency": "daily", "end_date": None},
+        ],
+    )
+    def test_null_end_date_and_count_stay_absent(self, spec):
+        ek = make_ek_module()
+        svc = EventKitService(event_store=make_store(), ek_module=ek)
+
+        svc._create_recurrence_rule(spec)
+
+        assert _rule_builder(ek).call_args.args[8] is None
+
     def test_invalid_weekday_raises(self):
         svc, _, _ = _make_service()
         with pytest.raises(ValueError, match="Invalid weekday"):
@@ -1295,6 +1387,16 @@ class TestFindEventById:
 
         assert svc._find_event_by_id("nope") is None
 
+    def test_reminder_identifier_returns_none(self):
+        store = make_store()
+        store.calendarItemWithIdentifier_.return_value = MockReminder(
+            identifier="evt-42"
+        )
+        svc, _, _ = _service_with_event(MockEvent(), store=store)
+
+        assert svc._find_event_by_id("evt-42") is None
+
+
     def test_composite_id_selects_the_matching_occurrence(self):
         cal = MockCalendar("Work", "cal-w")
         target = datetime(2026, 3, 15, 9, 0)
@@ -1344,3 +1446,38 @@ class TestFindEventById:
         with patch.dict("sys.modules", {"Foundation": MagicMock()}):
             with pytest.raises(ValueError, match="Occurrence .* not found"):
                 svc._find_event_by_id("evt-r/2026-03-15T09:00:00")
+
+
+class TestReminderIdIsNotAnEvent:
+    @pytest.fixture()
+    def parts(self):
+        store = make_store(calendars=[MockCalendar("Personal", "cal-2")])
+        store.calendarItemWithIdentifier_.return_value = MockReminder(
+            "Buy milk", "evt-42"
+        )
+        svc, _, _ = _make_service(store=store)
+        return svc, store
+
+    def test_update_raises_and_writes_nothing(self, parts):
+        svc, store = parts
+
+        with pytest.raises(ValueError, match="Event 'evt-42' not found"):
+            svc.update_event("evt-42", title="New")
+
+        store.saveEvent_span_commit_error_.assert_not_called()
+
+    def test_delete_raises_and_removes_nothing(self, parts):
+        svc, store = parts
+
+        with pytest.raises(ValueError, match="Event 'evt-42' not found"):
+            svc.delete_event("evt-42")
+
+        store.removeEvent_span_commit_error_.assert_not_called()
+
+    def test_move_raises_and_writes_nothing(self, parts):
+        svc, store = parts
+
+        with pytest.raises(ValueError, match="Event 'evt-42' not found"):
+            svc.move_event("evt-42", "Personal")
+
+        store.saveEvent_span_commit_error_.assert_not_called()

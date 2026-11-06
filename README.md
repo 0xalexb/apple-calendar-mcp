@@ -64,6 +64,14 @@ key is an error that names it, and `{}` is an error: only `""` clears. That incl
 `days_of_month`, `months_of_year` and `week_positions` that `recurrence_rules` prints on read, so
 the read shape does not round-trip. `create_event` with `recurrence: ""` makes a non-recurring event.
 
+A wrong value is an error too: `interval` and `count` must be positive integers (`true` is not one),
+`end_date` an ISO 8601 string, and `days_of_week` a list of weekday names. `null` for `end_date` or
+`count` means absent; for `interval` or `days_of_week` it is an error, and `days_of_week: []` means
+no weekdays.
+
+An empty date (`""`) is an error, never "not passed". `update_event` with no field to change is an
+error and writes nothing, and an id that belongs to a reminder is reported as `Event '<id>' not found`.
+
 `status` and `attendees` are read-only — EventKit exposes no public API to set them.
 
 ## apple-calendar CLI
@@ -93,14 +101,17 @@ are not accepted (`--start` is an error, not `--start-date`).
   The object takes only `frequency`, `interval`, `end_date`, `count` and `days_of_week`; any other
   key (`end`, `days_of_month`, `months_of_year` and `week_positions` included) is bad input, exit `1`.
   `{}` is an error too: only `""` clears the recurrence, on `update`. `create --recurrence ""`
-  makes a non-recurring event.
+  makes a non-recurring event. A wrong value (`"interval": 0`, `"count": "3"`,
+  `"days_of_week": "monday"`) is bad input, exit `1`.
+- A date flag passed as `""` is bad input, exit `1`, with nothing written. `update` with only
+  `--event-id` is bad input too.
 - No flag reads a file.
 - Stdout is never empty on exit `0`: a list verb prints `[]` and `all-events` prints `{}` when there is nothing.
 
 | Exit | Meaning |
 |------|---------|
 | `0` | ok |
-| `1` | not found, bad input, a usage error, or a failed save or delete |
+| `1` | not found (an id that is not an event included), bad input, a usage error, or a failed save or delete |
 | `2` | Calendar access denied or timed out |
 
 Install it as a tool. Without `UV_TOOL_BIN_DIR`, `uv` uses `~/.local/bin`, and `dotfiles-sync`

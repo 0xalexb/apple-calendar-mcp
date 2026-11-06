@@ -37,7 +37,11 @@ def get_events(
     calendar_id: str | None = None,
 ) -> list[dict]:
     start = datetime.fromisoformat(start_date)
-    end = datetime.fromisoformat(end_date) if end_date else start + timedelta(days=1)
+    end = (
+        datetime.fromisoformat(end_date)
+        if end_date is not None
+        else start + timedelta(days=1)
+    )
     events = service.get_events(
         calendar_name, start, end, calendar_id=calendar_id
     )
@@ -50,7 +54,11 @@ def get_all_events(
     end_date: str | None = None,
 ) -> dict:
     start = datetime.fromisoformat(start_date)
-    end = datetime.fromisoformat(end_date) if end_date else start + timedelta(days=1)
+    end = (
+        datetime.fromisoformat(end_date)
+        if end_date is not None
+        else start + timedelta(days=1)
+    )
     events = service.get_all_events(start, end)
     grouped: dict[str, list[dict]] = {}
     for ev in events:
@@ -84,7 +92,7 @@ def create_event(
     alarm_minutes_before: list[int] | None = None,
 ) -> dict:
     start = datetime.fromisoformat(start_date)
-    if end_date:
+    if end_date is not None:
         end = datetime.fromisoformat(end_date)
     elif is_all_day:
         end = start + timedelta(days=1)
@@ -124,8 +132,12 @@ def update_event(
     recurrence: str | dict | None = None,
     span: str = "this",
 ) -> dict:
-    parsed_start = datetime.fromisoformat(start_date) if start_date else None
-    parsed_end = datetime.fromisoformat(end_date) if end_date else None
+    parsed_start = (
+        datetime.fromisoformat(start_date) if start_date is not None else None
+    )
+    parsed_end = (
+        datetime.fromisoformat(end_date) if end_date is not None else None
+    )
     event = service.update_event(
         event_id,
         title=title,

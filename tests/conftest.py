@@ -442,6 +442,36 @@ class MockEvent:
         return self._structured_location
 
 
+class MockReminder:
+    """Simulates an EKReminder: it answers isCompleted, not occurrenceDate."""
+
+    def __init__(self, title: str = "", identifier: str = "evt-1"):
+        self._title = title
+        self._identifier = identifier
+        self._calendar = None
+
+    def title(self):
+        return self._title
+
+    def setTitle_(self, title):
+        self._title = title
+
+    def calendarItemIdentifier(self):
+        return self._identifier
+
+    def calendar(self):
+        return self._calendar
+
+    def setCalendar_(self, calendar):
+        self._calendar = calendar
+
+    def isCompleted(self):
+        return False
+
+    def setCompleted_(self, completed):
+        pass
+
+
 def make_ek_module():
     """Create a mock EventKit module with the constants the service reads."""
     ek = MagicMock()

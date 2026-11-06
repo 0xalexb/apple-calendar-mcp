@@ -18,6 +18,7 @@ from tests.conftest import (
     MockEvent,
     MockGeoLocation,
     MockNSDate,
+    MockReminder,
     MockStructuredLocation,
     make_ek_module,
     make_store,
@@ -343,7 +344,7 @@ class TestJsonMatchesTools:
         service.update_event.return_value = event
 
         for flags, expected in (
-            ([], None),
+            (["--title", "T"], None),
             (["--is-all-day"], True),
             (["--no-is-all-day"], False),
         ):
@@ -532,28 +533,29 @@ class TestExitCodes:
         assert capsys.readouterr().out == ""
 
 
-class TestRecurrenceRejected:
-    @pytest.fixture()
-    def real(self, work):
-        existing = MockEvent(
-            title="Old",
-            identifier="evt-1",
-            calendar=work,
-            start_date=MockNSDate(START.timestamp()),
-            end_date=MockNSDate(PLUS_HOUR.timestamp()),
-            recurrence_rules=[object()],
-        )
-        store = make_store(calendars=[work])
-        store.calendarItemWithIdentifier_.return_value = existing
-        ek = make_ek_module()
-        ek.EKEvent.eventWithEventStore_.return_value = MockEvent(calendar=work)
-        svc = EventKitService(event_store=store, ek_module=ek)
-        with (
-            patch("apple_calendar_mcp.cli.EventKitService", return_value=svc),
-            patch.dict("sys.modules", {"Foundation": MagicMock()}),
-        ):
-            yield store
+@pytest.fixture()
+def real(work):
+    existing = MockEvent(
+        title="Old",
+        identifier="evt-1",
+        calendar=work,
+        start_date=MockNSDate(START.timestamp()),
+        end_date=MockNSDate(PLUS_HOUR.timestamp()),
+        recurrence_rules=[object()],
+    )
+    store = make_store(calendars=[work])
+    store.calendarItemWithIdentifier_.return_value = existing
+    ek = make_ek_module()
+    ek.EKEvent.eventWithEventStore_.return_value = MockEvent(calendar=work)
+    svc = EventKitService(event_store=store, ek_module=ek)
+    with (
+        patch("apple_calendar_mcp.cli.EventKitService", return_value=svc),
+        patch.dict("sys.modules", {"Foundation": MagicMock()}),
+    ):
+        yield store
 
+
+class TestRecurrenceRejected:
     @pytest.mark.parametrize("verb", ["create", "update"])
     @pytest.mark.parametrize(
         "recurrence,named",
@@ -561,6 +563,21 @@ class TestRecurrenceRejected:
             ("{}", None),
             ('{"end":{"date":"2026-12-31T00:00:00"}}', "'end'"),
             ('{"frequency":"daily","days_of_month":[1]}', "'days_of_month'"),
+            ('{"frequency":"daily","end_date":5}', "'end_date'"),
+            ('{"frequency":"daily","interval":"2"}', "'interval'"),
+            ('{"frequency":"daily","interval":0}', "'interval'"),
+            ('{"frequency":"daily","interval":-1}', "'interval'"),
+            ('{"frequency":"daily","interval":true}', "'interval'"),
+            ('{"frequency":"daily","interval":null}', "'interval'"),
+            ('{"frequency":"daily","count":"3"}', "'count'"),
+            ('{"frequency":"daily","count":0}', "'count'"),
+            ('{"frequency":"daily","count":true}', "'count'"),
+            ('{"frequency":"weekly","days_of_week":"monday"}', "'days_of_week'"),
+            ('{"frequency":"weekly","days_of_week":[1]}', "'days_of_week'"),
+            ('{"frequency":"weekly","days_of_week":""}', "'days_of_week'"),
+            ('{"frequency":"weekly","days_of_week":0}', "'days_of_week'"),
+            ('{"frequency":"weekly","days_of_week":{}}', "'days_of_week'"),
+            ('{"frequency":"weekly","days_of_week":null}', "'days_of_week'"),
         ],
     )
     def test_rejected_with_exit_1(self, capsys, real, verb, recurrence, named):
@@ -583,6 +600,69 @@ class TestRecurrenceRejected:
     def test_create_empty_string_makes_a_non_recurring_event(self, capsys, real):
         run_ok(capsys, "create", "--title", "T", "--start-date", START_ISO, "--recurrence", "")
         real.saveEvent_span_commit_error_.assert_called_once()
+
+
+class TestBadInputWritesNothing:
+    @pytest.mark.parametrize("flag", ["--start-date", "--end-date"])
+    def test_update_empty_date(self, capsys, real, flag):
+        code, out, err = run(capsys, "update", "--event-id", "evt-1", flag, "")
+        assert code == 1
+        assert out == ""
+        assert err.startswith("apple-calendar: ")
+        real.saveEvent_span_commit_error_.assert_not_called()
+
+    @pytest.mark.parametrize("verb", ["events", "all-events"])
+    def test_query_empty_end_date(self, capsys, real, verb):
+        code, out, err = run(
+            capsys, verb, "--start-date", START_ISO, "--end-date", ""
+        )
+        assert code == 1
+        assert out == ""
+        assert err.startswith("apple-calendar: ")
+        real.eventsMatchingPredicate_.assert_not_called()
+
+    def test_create_empty_end_date(self, capsys, real):
+        code, out, err = run(
+            capsys,
+            "create",
+            "--title",
+            "T",
+            "--start-date",
+            START_ISO,
+            "--end-date",
+            "",
+        )
+        assert code == 1
+        assert out == ""
+        assert err.startswith("apple-calendar: ")
+        real.saveEvent_span_commit_error_.assert_not_called()
+
+    def test_update_without_fields(self, capsys, real):
+        code, out, err = run(capsys, "update", "--event-id", "evt-1")
+        assert code == 1
+        assert out == ""
+        assert err.startswith("apple-calendar: ")
+        assert "Nothing to update" in err
+        real.saveEvent_span_commit_error_.assert_not_called()
+
+    @pytest.mark.parametrize(
+        "argv",
+        [
+            ["update", "--event-id", "evt-1", "--title", "New"],
+            ["delete", "--event-id", "evt-1"],
+            ["move", "--event-id", "evt-1", "--target-calendar-name", "Work"],
+        ],
+    )
+    def test_reminder_id_is_not_found(self, capsys, real, argv):
+        real.calendarItemWithIdentifier_.return_value = MockReminder(
+            "Buy milk", "evt-1"
+        )
+        code, out, err = run(capsys, *argv)
+        assert code == 1
+        assert out == ""
+        assert err == "apple-calendar: Event 'evt-1' not found\n"
+        real.saveEvent_span_commit_error_.assert_not_called()
+        real.removeEvent_span_commit_error_.assert_not_called()
 
 
 class TestNoFileFlag:
