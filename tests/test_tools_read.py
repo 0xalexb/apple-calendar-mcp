@@ -5,13 +5,15 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from apple_calendar_mcp.server import (
+from apple_calendar_mcp.formatting import (
     _format_alarm,
     _format_calendar,
     _format_event,
     _format_nsdate,
     _format_participant,
     _format_recurrence_rule,
+)
+from apple_calendar_mcp.server import (
     get_all_events,
     get_events,
     list_calendars,

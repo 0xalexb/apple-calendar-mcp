@@ -11,7 +11,10 @@ uv run apple-calendar-mcp        # Run server
 
 ## Architecture
 
-- **`server.py`** — FastMCP tool definitions, formatting helpers, service initialization
+- **`server.py`** — FastMCP tool wrappers (signatures and docstrings are the MCP surface), service initialization
+- **`operations.py`** — one function per tool, `(service, **tool_params) -> result`; `server.py` and `cli.py` both call it, so the transports cannot drift
+- **`formatting.py`** — enum maps and `_format_*` helpers
+- **`cli.py`** — the `apple-calendar` console script; one verb per tool, JSON on stdout, exit `0`/`1`/`2`
 - **`eventkit_service.py`** — All EventKit (pyobjc) wrapper logic; isolates native calls to one file
 
 ## Distribution
@@ -30,8 +33,12 @@ uv run apple-calendar-mcp        # Run server
 - Span values: `_SPAN_MAP = {"this": 0, "future": 1}` for save/delete operations
 - Recurrence: `_RECURRENCE_MAP` → `EKRecurrenceFrequency` values (daily=0, weekly=1, monthly=2, yearly=3)
 - Calendar fetching: synchronous `eventsMatchingPredicate:` (not async like reminders)
-- `server.py` must never import EventKit — its formatters duck-type pyobjc objects, which is what
-  lets the tests run without a macOS runtime. Enum maps there use hardcoded int literals
+- `server.py`, `operations.py` and `formatting.py` must never import EventKit — the formatters
+  duck-type pyobjc objects, which is what lets the tests run without a macOS runtime. Enum maps
+  use hardcoded int literals
+- `cli.py` and the modules it imports must never import `server` or `mcp`, so the short-lived CLI
+  starts fast; `tests/test_cli.py` asserts it
+- No CLI verb may have a file flag: deck checks the Apple backends by verb only and relies on it
 - Event ids are composite for recurring events: `<calendarItemIdentifier>/<occurrence ISO>`. All
   occurrences share one `calendarItemIdentifier`, so `calendarItemWithIdentifier:` alone always
   returns the first occurrence

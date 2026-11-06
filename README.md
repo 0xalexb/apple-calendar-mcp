@@ -61,6 +61,47 @@ Only `frequency` is required. `end_date` and `count` are mutually exclusive. In 
 
 `status` and `attendees` are read-only — EventKit exposes no public API to set them.
 
+## apple-calendar CLI
+
+`apple-calendar` runs the same operations from the shell. Each verb is one MCP tool and prints
+that tool's result as one JSON value on stdout; errors go to stderr as `apple-calendar: <message>`.
+
+| Verb | Tool | Flags |
+|------|------|-------|
+| `calendars` | `list_calendars` | — |
+| `events` | `get_events` | `--start-date` (required), `--calendar-name`, `--end-date`, `--calendar-id` |
+| `all-events` | `get_all_events` | `--start-date` (required), `--end-date` |
+| `create-calendar` | `create_calendar` | `--name` (required) |
+| `create` | `create_event` | `--title` and `--start-date` (required), `--end-date`, `--calendar-name`, `--calendar-id`, `--is-all-day`/`--no-is-all-day`, `--location`, `--url`, `--notes`, `--recurrence`, `--availability`, `--time-zone`, `--alarm-minutes-before` |
+| `update` | `update_event` | `--event-id` (required), `--title`, `--start-date`, `--end-date`, `--is-all-day`/`--no-is-all-day`, `--location`, `--url`, `--notes`, `--recurrence`, `--availability`, `--time-zone`, `--alarm-minutes-before`, `--span` |
+| `delete` | `delete_event` | `--event-id` (required), `--span` |
+| `move` | `move_event` | `--event-id` (required), `--target-calendar-name`, `--target-calendar-id` |
+| `quick-add` | `quick_add` | `--title` and `--start-date` (required), `--notes` |
+
+`ping` has no verb. Flags are the tool parameters in kebab-case, ids included, and abbreviations
+are not accepted (`--start` is an error, not `--start-date`).
+
+- A string parameter takes the string. A value that starts with `-` is passed as `--notes=-x`.
+- A boolean is `--is-all-day` or `--no-is-all-day`. On `update`, leaving both out leaves the field unchanged.
+- `--alarm-minutes-before` takes one JSON list of integers: `[10,60]` sets alarms, `[]` clears them on `update`.
+- `--recurrence` takes a frequency string, or one JSON object when the value starts with `{`.
+  `""` clears the recurrence on `update`.
+- No flag reads a file.
+- Stdout is never empty on exit `0`: a list verb prints `[]` and `all-events` prints `{}` when there is nothing.
+
+| Exit | Meaning |
+|------|---------|
+| `0` | ok |
+| `1` | not found, bad input, a usage error, or a failed save or delete |
+| `2` | Calendar access denied or timed out |
+
+Install it as a tool. Without `UV_TOOL_BIN_DIR`, `uv` uses `~/.local/bin`, and `dotfiles-sync`
+would enroll the binary into chezmoi:
+
+```bash
+UV_TOOL_BIN_DIR="$HOME/.local/share/uv/tool-bin" uv tool install git+https://github.com/0xalexb/apple-calendar-mcp
+```
+
 ## Install
 
 ### Homebrew (recommended)
