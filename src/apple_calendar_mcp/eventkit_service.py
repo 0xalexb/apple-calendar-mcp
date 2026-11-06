@@ -15,6 +15,14 @@ class EventKitService:
         "yearly": 3,
     }
 
+    _RECURRENCE_KEYS = (
+        "frequency",
+        "interval",
+        "end_date",
+        "count",
+        "days_of_week",
+    )
+
     _SPAN_MAP = {"this": 0, "future": 1}
 
     _AVAILABILITY_MAP = {
@@ -240,7 +248,7 @@ class EventKitService:
         if alarm_minutes_before is not None:
             event.setAlarms_(self._make_alarms(alarm_minutes_before) or None)
 
-        if recurrence:
+        if recurrence is not None and recurrence != "":
             rule = self._create_recurrence_rule(recurrence)
             event.addRecurrenceRule_(rule)
 
@@ -272,6 +280,13 @@ class EventKitService:
         if event is None:
             raise ValueError(f"Event '{event_id}' not found")
 
+        if recurrence is not None:
+            rule = (
+                None
+                if recurrence == ""
+                else self._create_recurrence_rule(recurrence)
+            )
+
         if title is not None:
             event.setTitle_(title)
         if start_date is not None:
@@ -299,11 +314,7 @@ class EventKitService:
         if alarm_minutes_before is not None:
             event.setAlarms_(self._make_alarms(alarm_minutes_before) or None)
         if recurrence is not None:
-            event.setRecurrenceRules_(
-                [self._create_recurrence_rule(recurrence)]
-                if recurrence
-                else None
-            )
+            event.setRecurrenceRules_([rule] if rule is not None else None)
 
         span_value = self._span_value(span)
         success, error = self._store.saveEvent_span_commit_error_(
@@ -419,6 +430,15 @@ class EventKitService:
             if isinstance(recurrence, str)
             else recurrence
         )
+
+        unknown = sorted(str(k) for k in spec if k not in self._RECURRENCE_KEYS)
+        if unknown:
+            noun = "key" if len(unknown) == 1 else "keys"
+            names = ", ".join(f"'{k}'" for k in unknown)
+            raise ValueError(
+                f"Unknown recurrence {noun} {names}. "
+                f"Allowed: {', '.join(self._RECURRENCE_KEYS)}"
+            )
 
         frequency = spec.get("frequency")
         if not isinstance(frequency, str):

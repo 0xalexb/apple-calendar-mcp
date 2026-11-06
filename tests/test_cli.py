@@ -12,12 +12,15 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from apple_calendar_mcp import cli, server
+from apple_calendar_mcp.eventkit_service import EventKitService
 from tests.conftest import (
     MockCalendar,
     MockEvent,
     MockGeoLocation,
     MockNSDate,
     MockStructuredLocation,
+    make_ek_module,
+    make_store,
 )
 
 TOOL_FOR_VERB = {
@@ -527,6 +530,59 @@ class TestExitCodes:
         with pytest.raises(TypeError):
             cli.main(["create-calendar", "--name", "n"])
         assert capsys.readouterr().out == ""
+
+
+class TestRecurrenceRejected:
+    @pytest.fixture()
+    def real(self, work):
+        existing = MockEvent(
+            title="Old",
+            identifier="evt-1",
+            calendar=work,
+            start_date=MockNSDate(START.timestamp()),
+            end_date=MockNSDate(PLUS_HOUR.timestamp()),
+            recurrence_rules=[object()],
+        )
+        store = make_store(calendars=[work])
+        store.calendarItemWithIdentifier_.return_value = existing
+        ek = make_ek_module()
+        ek.EKEvent.eventWithEventStore_.return_value = MockEvent(calendar=work)
+        svc = EventKitService(event_store=store, ek_module=ek)
+        with (
+            patch("apple_calendar_mcp.cli.EventKitService", return_value=svc),
+            patch.dict("sys.modules", {"Foundation": MagicMock()}),
+        ):
+            yield store
+
+    @pytest.mark.parametrize("verb", ["create", "update"])
+    @pytest.mark.parametrize(
+        "recurrence,named",
+        [
+            ("{}", None),
+            ('{"end":{"date":"2026-12-31T00:00:00"}}', "'end'"),
+            ('{"frequency":"daily","days_of_month":[1]}', "'days_of_month'"),
+        ],
+    )
+    def test_rejected_with_exit_1(self, capsys, real, verb, recurrence, named):
+        if verb == "create":
+            argv = ["create", "--title", "T", "--start-date", START_ISO]
+        else:
+            argv = ["update", "--event-id", "evt-1"]
+        code, out, err = run(capsys, *argv, "--recurrence", recurrence)
+        assert code == 1
+        assert out == ""
+        assert err.startswith("apple-calendar: ")
+        if named:
+            assert named in err
+        real.saveEvent_span_commit_error_.assert_not_called()
+
+    def test_update_empty_string_still_clears(self, capsys, real):
+        run_ok(capsys, "update", "--event-id", "evt-1", "--recurrence", "")
+        real.saveEvent_span_commit_error_.assert_called_once()
+
+    def test_create_empty_string_makes_a_non_recurring_event(self, capsys, real):
+        run_ok(capsys, "create", "--title", "T", "--start-date", START_ISO, "--recurrence", "")
+        real.saveEvent_span_commit_error_.assert_called_once()
 
 
 class TestNoFileFlag:
