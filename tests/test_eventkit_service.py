@@ -1397,40 +1397,6 @@ class TestFindEventById:
         assert svc._find_event_by_id("evt-42") is None
 
 
-class TestReminderIdIsNotAnEvent:
-    @pytest.fixture()
-    def parts(self):
-        store = make_store(calendars=[MockCalendar("Personal", "cal-2")])
-        store.calendarItemWithIdentifier_.return_value = MockReminder(
-            "Buy milk", "evt-42"
-        )
-        svc, _, _ = _make_service(store=store)
-        return svc, store
-
-    def test_update_raises_and_writes_nothing(self, parts):
-        svc, store = parts
-
-        with pytest.raises(ValueError, match="Event 'evt-42' not found"):
-            svc.update_event("evt-42", title="New")
-
-        store.saveEvent_span_commit_error_.assert_not_called()
-
-    def test_delete_raises_and_removes_nothing(self, parts):
-        svc, store = parts
-
-        with pytest.raises(ValueError, match="Event 'evt-42' not found"):
-            svc.delete_event("evt-42")
-
-        store.removeEvent_span_commit_error_.assert_not_called()
-
-    def test_move_raises_and_writes_nothing(self, parts):
-        svc, store = parts
-
-        with pytest.raises(ValueError, match="Event 'evt-42' not found"):
-            svc.move_event("evt-42", "Personal")
-
-        store.saveEvent_span_commit_error_.assert_not_called()
-
     def test_composite_id_selects_the_matching_occurrence(self):
         cal = MockCalendar("Work", "cal-w")
         target = datetime(2026, 3, 15, 9, 0)
@@ -1480,3 +1446,38 @@ class TestReminderIdIsNotAnEvent:
         with patch.dict("sys.modules", {"Foundation": MagicMock()}):
             with pytest.raises(ValueError, match="Occurrence .* not found"):
                 svc._find_event_by_id("evt-r/2026-03-15T09:00:00")
+
+
+class TestReminderIdIsNotAnEvent:
+    @pytest.fixture()
+    def parts(self):
+        store = make_store(calendars=[MockCalendar("Personal", "cal-2")])
+        store.calendarItemWithIdentifier_.return_value = MockReminder(
+            "Buy milk", "evt-42"
+        )
+        svc, _, _ = _make_service(store=store)
+        return svc, store
+
+    def test_update_raises_and_writes_nothing(self, parts):
+        svc, store = parts
+
+        with pytest.raises(ValueError, match="Event 'evt-42' not found"):
+            svc.update_event("evt-42", title="New")
+
+        store.saveEvent_span_commit_error_.assert_not_called()
+
+    def test_delete_raises_and_removes_nothing(self, parts):
+        svc, store = parts
+
+        with pytest.raises(ValueError, match="Event 'evt-42' not found"):
+            svc.delete_event("evt-42")
+
+        store.removeEvent_span_commit_error_.assert_not_called()
+
+    def test_move_raises_and_writes_nothing(self, parts):
+        svc, store = parts
+
+        with pytest.raises(ValueError, match="Event 'evt-42' not found"):
+            svc.move_event("evt-42", "Personal")
+
+        store.saveEvent_span_commit_error_.assert_not_called()
