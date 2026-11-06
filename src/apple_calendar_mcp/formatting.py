@@ -182,11 +182,11 @@ def _format_geo(location) -> dict | None:
     geo = location.geoLocation()
     if geo is None:
         return None
-    coordinate = geo.coordinate()
+    latitude, longitude = geo.coordinate()
     result = {
         "title": location.title(),
-        "latitude": coordinate.latitude,
-        "longitude": coordinate.longitude,
+        "latitude": latitude,
+        "longitude": longitude,
     }
     radius = location.radius()
     if radius:

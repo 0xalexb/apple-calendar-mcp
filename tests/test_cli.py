@@ -12,7 +12,13 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from apple_calendar_mcp import cli, server
-from tests.conftest import MockCalendar, MockEvent, MockNSDate
+from tests.conftest import (
+    MockCalendar,
+    MockEvent,
+    MockGeoLocation,
+    MockNSDate,
+    MockStructuredLocation,
+)
 
 TOOL_FOR_VERB = {
     "calendars": "list_calendars",
@@ -416,6 +422,36 @@ class TestJsonMatchesTools:
         code, out, _ = run(capsys, "create-calendar", "--name", "Café")
         assert code == 0
         assert out == '{"name": "Café", "created": true}\n'
+
+
+class TestGeoLocation:
+    @pytest.fixture()
+    def geo_event(self, work):
+        return MockEvent(
+            title="Offsite",
+            identifier="evt-g",
+            calendar=work,
+            start_date=MockNSDate(START.timestamp()),
+            end_date=MockNSDate(PLUS_HOUR.timestamp()),
+            structured_location=MockStructuredLocation(
+                title="HQ", geo_location=MockGeoLocation(52.5, 13.4), radius=100.0
+            ),
+        )
+
+    def test_events_with_a_geo_location(self, capsys, service, work, geo_event):
+        service.get_events.return_value = [geo_event]
+        out = run_ok(capsys, "events", "--start-date", START_ISO, "--calendar-name", "Work")
+        assert out[0]["geo"] == {
+            "title": "HQ",
+            "latitude": 52.5,
+            "longitude": 13.4,
+            "radius": 100.0,
+        }
+
+    def test_update_prints_an_event_with_a_geo_location(self, capsys, service, geo_event):
+        service.update_event.return_value = geo_event
+        out = run_ok(capsys, "update", "--event-id", "evt-g", "--title", "Offsite")
+        assert out["geo"]["latitude"] == 52.5
 
 
 class TestExitCodes:
