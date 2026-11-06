@@ -276,6 +276,24 @@ class EventKitService:
         span: str = "this",
     ) -> Any:
         """Update an existing event. Only provided fields are changed."""
+        if all(
+            value is None
+            for value in (
+                title,
+                start_date,
+                end_date,
+                is_all_day,
+                location,
+                url,
+                notes,
+                availability,
+                time_zone,
+                alarm_minutes_before,
+                recurrence,
+            )
+        ):
+            raise ValueError("Nothing to update: pass at least one field")
+
         event = self._find_event_by_id(event_id)
         if event is None:
             raise ValueError(f"Event '{event_id}' not found")
@@ -380,8 +398,10 @@ class EventKitService:
         """
         series_id, separator, occurrence = event_id.partition("/")
         event = self._store.calendarItemWithIdentifier_(series_id)
-        if not separator or event is None:
-            return event
+        if event is None:
+            return None
+        if not separator:
+            return event if hasattr(event, "occurrenceDate") else None
 
         target = datetime.fromisoformat(occurrence)
         calendar = event.calendar()
@@ -456,6 +476,27 @@ class EventKitService:
             raise ValueError(
                 "Recurrence accepts 'end_date' or 'count', not both"
             )
+        if end_date is not None and not isinstance(end_date, str):
+            raise ValueError("Recurrence 'end_date' must be an ISO 8601 string")
+        if count is not None and not (type(count) is int and count > 0):
+            raise ValueError("Recurrence 'count' must be a positive integer")
+        interval = 1
+        if "interval" in spec:
+            interval = spec["interval"]
+            if not (type(interval) is int and interval > 0):
+                raise ValueError(
+                    "Recurrence 'interval' must be a positive integer"
+                )
+        days = None
+        if "days_of_week" in spec:
+            days = spec["days_of_week"]
+            if not isinstance(days, list) or not all(
+                isinstance(day, str) for day in days
+            ):
+                raise ValueError(
+                    "Recurrence 'days_of_week' must be a list of weekday names"
+                )
+
         end = None
         if end_date is not None:
             end = self._ek.EKRecurrenceEnd.recurrenceEndWithEndDate_(
@@ -467,7 +508,6 @@ class EventKitService:
             )
 
         days_of_week = None
-        days = spec.get("days_of_week")
         if days:
             days_of_week = [
                 self._ek.EKRecurrenceDayOfWeek.dayOfWeek_(
@@ -480,7 +520,7 @@ class EventKitService:
             self._ek.EKRecurrenceRule.alloc()
             .initRecurrenceWithFrequency_interval_daysOfTheWeek_daysOfTheMonth_monthsOfTheYear_weeksOfTheYear_daysOfTheYear_setPositions_end_(
                 freq,
-                spec.get("interval", 1),
+                interval,
                 days_of_week,
                 None,
                 None,
